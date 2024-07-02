@@ -1,0 +1,9 @@
+gradio
+requests
+PyPDF2
+python-docx
+pyttsx3
+langchain
+langchain-community
+chromadb
+sentence-transformers
