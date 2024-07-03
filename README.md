@@ -7,5 +7,6 @@ v2
 
 
 v1
+
 https://github.com/GeekyGhost/Geeky-Ollama-WebUI/assets/111990299/4bf7f250-f9ed-41e4-8cb9-4f80a8781a76
 
