@@ -47,7 +47,7 @@ def generate_text(model, prompt, max_length, temperature, top_k, top_p, num_sequ
             logger.error(f"Error processing image: {e}")
 
     if context:
-        data["context"] = context
+        data["prompt"] = f"Context: {context}\n\nPrompt: {prompt}"
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_sequences) as executor:
@@ -111,7 +111,7 @@ def text_to_speech(text, voice_name, auto_play):
         return None
 
 def generate_with_context(model, prompt, max_length, temperature, top_k, top_p, num_sequences, image, document):
-    context = extract_text_from_document(document)
+    context = extract_text_from_document(document) if document else None
     return generate_text(model, prompt, max_length, temperature, top_k, top_p, num_sequences, image, context)
 
 def generate_and_speak(model, prompt, max_length, temperature, top_k, top_p, num_sequences, image, document, voice_name, auto_play):
@@ -127,7 +127,7 @@ with gr.Blocks(title="Local Ollama Text Generation with RAG and Vision") as ifac
         with gr.Column(scale=1):
             model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Model", value=get_available_models()[0] if get_available_models() else None)
             image_input = gr.Image(type="filepath", label="Upload Image", height=300, width=300)
-            document_input = gr.File(label="Upload Document")
+            document_input = gr.File(label="Upload Document for Context (RAG)")
         
         with gr.Column(scale=2):
             input_text = gr.Textbox(lines=5, label="Input Prompt")
