@@ -164,24 +164,20 @@ def continue_code_generation(coding_model, current_code, max_length, temperature
     return gr.update(value=full_code)
 
 def chat_history_to_string():
-    chat_html = '<div class="chat-container">'
+    chat_html = '<div style="display: flex; flex-direction: column; gap: 15px; font-size: 16px; width: 100%;">'
     for i, msg in enumerate(chat_history):
         if msg['role'] == 'user':
             chat_html += f'''
-            <div class="chat-bubble user" id="chat-{i}">
-                <div class="chat-content">
-                    {msg["content"]}
-                </div>
-                <div class="chat-time">You</div>
+            <div style="align-self: flex-end; max-width: 80%; background-color: #1982FC; color: white; padding: 12px 18px; border-radius: 20px 20px 0 20px; position: relative; word-wrap: break-word;">
+                <div style="font-size: 1.1em;">{msg["content"]}</div>
+                <div style="font-size: 0.8em; opacity: 0.7; text-align: right; margin-top: 5px;">You</div>
             </div>
             '''
         else:
             chat_html += f'''
-            <div class="chat-bubble assistant" id="chat-{i}">
-                <div class="chat-content">
-                    {msg["content"]}
-                </div>
-                <div class="chat-time">Assistant</div>
+            <div style="align-self: flex-start; max-width: 80%; background-color: #34C759; color: white; padding: 12px 18px; border-radius: 20px 20px 20px 0; position: relative; word-wrap: break-word;">
+                <div style="font-size: 1.1em;">{msg["content"]}</div>
+                <div style="font-size: 0.8em; opacity: 0.7; margin-top: 5px;">Assistant</div>
             </div>
             '''
     chat_html += '</div>'
@@ -272,79 +268,78 @@ def save_modelfile(model_name, modelfile_content):
     except Exception as e:
         return f"Error saving modelfile: {str(e)}"
 
-# Gradio interface
+# Gradio interface setup
 with gr.Blocks(title="Enhanced Ollama Text Generation", 
-               theme=gr.themes.Soft(primary_hue="slate", secondary_hue="gray", neutral_hue="gray", text_size="lg")) as iface:
+               theme=gr.themes.Base(),
+               css="footer {display:none} .container {max-width: 100% !important; padding: 0 !important;}") as iface:
     gr.Markdown("# Enhanced Ollama Text Generation")
     
-    with gr.Tab("Chat and Code"):
-        with gr.Row():
-            with gr.Column(scale=3):
-                main_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Main Model", value=get_available_models()[0] if get_available_models() else None)
-                chat_display = gr.HTML(label="Chat History", elem_id="chat-display")
-                with gr.Row():
-                    input_text = gr.Textbox(lines=2, label="Input Prompt", placeholder="Type your message here...", scale=18)
-                    mic_button = gr.Button("🎤", scale=2)
-                with gr.Row():
-                    generate_button = gr.Button("Generate", scale=3)
-                    mode_radio = gr.Radio(["Chat", "Coding"], label="Mode", value="Chat", scale=2)
-                    generate_voice_checkbox = gr.Checkbox(label="Generate Voice", value=False, scale=1)
-                audio_output = gr.Audio(label="Voice Output", visible=False)
-            
-            with gr.Column(scale=2):
-                coding_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Coding Model", value=get_available_models()[0] if get_available_models() else None)
-                code_output = gr.Markdown(label="Code Output")
-                with gr.Row():
-                    prev_button = gr.Button("◀ Previous")
-                    next_button = gr.Button("Next ▶")
-                with gr.Row():
-                    download_button = gr.Button("Download Code")
-                    copy_button = gr.Button("Copy to Clipboard")
-                continue_button = gr.Button("Continue Generation")
+    with gr.Row():
+        with gr.Column(scale=3):
+            main_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Main Model", value=get_available_models()[0] if get_available_models() else None)
+            chat_display = gr.HTML(label="Chat History")
+            with gr.Row():
+                input_text = gr.Textbox(lines=2, label="Input Prompt", placeholder="Type your message here...", scale=20)
+                mic_button = gr.Button("🎤", scale=1)
+                generate_button = gr.Button("Generate", scale=3)
+            with gr.Row():
+                mode_radio = gr.Radio(["Chat", "Coding"], label="Mode", value="Chat")
+                generate_voice_checkbox = gr.Checkbox(label="Generate Voice", value=False)
+            voice_dropdown = gr.Dropdown(choices=get_available_voices(), label="Select Voice", value=get_available_voices()[0] if get_available_voices() else None)
+            audio_output = gr.Audio(label="Voice Output", visible=False)
         
-        with gr.Row():
-            with gr.Column(scale=1):
-                image_input = gr.Image(type="filepath", label="Upload Image")
-                document_input = gr.File(label="Upload Document for Context (RAG)")
-            with gr.Column(scale=2):
-                max_length = gr.Slider(50, 42000, value=250, step=10, label="Max Length")
-                temperature = gr.Slider(0.1, 2.0, value=1.0, step=0.1, label="Temperature")
-                top_k = gr.Slider(0, 100, value=50, step=1, label="Top-k")
-                top_p = gr.Slider(0.0, 1.0, value=0.9, step=0.05, label="Top-p (nucleus sampling)")
-                num_sequences = gr.Slider(1, 5, value=1, step=1, label="Number of Sequences")
-                voice_dropdown = gr.Dropdown(choices=get_available_voices(), label="Select Voice", value=get_available_voices()[0] if get_available_voices() else None)
+        with gr.Column(scale=2):
+            coding_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Coding Model", value=get_available_models()[0] if get_available_models() else None)
+            code_output = gr.Code(label="Code Output", language="python")
+            with gr.Row():
+                prev_button = gr.Button("◀ Previous")
+                next_button = gr.Button("Next ▶")
+                download_button = gr.Button("Download Code")
+                copy_button = gr.Button("Copy to Clipboard")
+            continue_button = gr.Button("Continue Generation")
 
-        with gr.Row():
-            new_session_button = gr.Button("New Session")
-            session_dropdown = gr.Dropdown(choices=[], label="Load Session")
-            load_session_button = gr.Button("Load Selected Session")
-            delete_session_button = gr.Button("Delete Selected Session")
+    with gr.Row():
+        with gr.Column(scale=1):
+            image_input = gr.Image(type="filepath", label="Upload Image")
+            document_input = gr.File(label="Upload Document for Context (RAG)")
+        with gr.Column(scale=2):
+            max_length = gr.Slider(50, 42000, value=250, step=10, label="Max Length")
+            temperature = gr.Slider(0.1, 2.0, value=1.0, step=0.1, label="Temperature")
+            top_k = gr.Slider(0, 100, value=50, step=1, label="Top-k")
+            top_p = gr.Slider(0.0, 1.0, value=0.9, step=0.05, label="Top-p (nucleus sampling)")
+            num_sequences = gr.Slider(1, 5, value=1, step=1, label="Number of Sequences")
 
-        generate_button.click(
-            generate_with_context,
-            inputs=[main_model_dropdown, coding_model_dropdown, input_text, max_length, temperature, top_k, top_p, num_sequences, image_input, document_input, mode_radio, voice_dropdown, generate_voice_checkbox],
-            outputs=[chat_display, code_output, chat_display, audio_output, code_output]
-        )
+    with gr.Row():
+        new_session_button = gr.Button("New Session")
+        session_dropdown = gr.Dropdown(choices=[], label="Load Session")
+        load_session_button = gr.Button("Load Selected Session")
+        delete_session_button = gr.Button("Delete Selected Session")
 
-        continue_button.click(
-            continue_code_generation,
-            inputs=[coding_model_dropdown, code_output, max_length, temperature, top_k, top_p],
-            outputs=[code_output]
-        )
+    generate_button.click(
+        generate_with_context,
+        inputs=[main_model_dropdown, coding_model_dropdown, input_text, max_length, temperature, top_k, top_p, num_sequences, image_input, document_input, mode_radio, voice_dropdown, generate_voice_checkbox],
+        outputs=[chat_display, code_output, chat_display, audio_output, code_output]
+    )
 
-        prev_button.click(lambda: cycle_markdown("prev"), outputs=[code_output])
-        next_button.click(lambda: cycle_markdown("next"), outputs=[code_output])
+    continue_button.click(
+        continue_code_generation,
+        inputs=[coding_model_dropdown, code_output, max_length, temperature, top_k, top_p],
+        outputs=[code_output]
+    )
 
-        mic_button.click(record_audio, outputs=input_text)
+    prev_button.click(lambda: cycle_markdown("prev"), outputs=[code_output])
+    next_button.click(lambda: cycle_markdown("next"), outputs=[code_output])
 
-        new_session_button.click(new_session, outputs=[session_dropdown, chat_display, code_output])
-        load_session_button.click(load_session, inputs=[session_dropdown], outputs=[chat_display, code_output])
-        delete_session_button.click(delete_session, inputs=[session_dropdown], outputs=[session_dropdown, chat_display, code_output])
+    mic_button.click(record_audio, outputs=input_text)
 
-        generate_voice_checkbox.change(lambda x: gr.update(visible=x), inputs=[generate_voice_checkbox], outputs=[audio_output])
+    new_session_button.click(new_session, outputs=[session_dropdown, chat_display, code_output])
+    load_session_button.click(load_session, inputs=[session_dropdown], outputs=[chat_display, code_output])
+    delete_session_button.click(delete_session, inputs=[session_dropdown], outputs=[session_dropdown, chat_display, code_output])
 
-        download_button.click(download_code, inputs=[code_output], outputs=[gr.File()])
-        copy_button.click(lambda x: gr.update(value=x), inputs=[code_output], outputs=[gr.Textbox(visible=False)])
+    generate_voice_checkbox.change(lambda x: gr.update(visible=x), inputs=[generate_voice_checkbox], outputs=[audio_output])
+
+    download_button.click(download_code, inputs=[code_output], outputs=[gr.File()])
+    copy_button.click(lambda x: gr.update(value=x), inputs=[code_output], outputs=[gr.Textbox(visible=False)])
 
     with gr.Tab("Model Management"):
         with gr.Row():
@@ -384,7 +379,7 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
 
-# Add custom CSS and JavaScript for chat bubbles and markdown navigation
+# Add custom CSS and JavaScript for chat bubbles and full-width layout
 iface.load(css="""
     .chat-container {
         display: flex;
@@ -401,17 +396,16 @@ iface.load(css="""
         word-wrap: break-word;
     }
     .user {
-        background-color: #1982FC;
+        background-color: ##34C759;
         align-self: flex-end;
         border-bottom-right-radius: 20px;
         border-bottom-left-radius: 5px;
     }
     .assistant {
-        background-color: #E5E5EA;
+        background-color: #34C759;  /* Changed to green */
         align-self: flex-start;
         border-bottom-left-radius: 20px;
         border-bottom-right-radius: 5px;
-        color: black;
     }
     .chat-content {
         margin-bottom: 5px;
