@@ -11,6 +11,6 @@ echo Installing the necessary requirements...
 pip install -r requirements.txt
 
 echo Launching OllamaGradio UI
-geekyOllana-Web-ui-main.py
+geeky-Web-ui-main.py
 
 pause
