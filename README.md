@@ -6,7 +6,7 @@ v2 - geeky-Web-ui-main.py
 <img width="832" alt="Screenshot 2024-07-03 083614" src="https://github.com/GeekyGhost/Geeky-Ollama-WebUI/assets/111990299/9a2b765d-f74d-4c12-9646-19487fdec2b7">
 
 
-v1
+v1 - geekyOllana-Web-ui-main.py
 
 https://github.com/GeekyGhost/Geeky-Ollama-WebUI/assets/111990299/4bf7f250-f9ed-41e4-8cb9-4f80a8781a76
 
