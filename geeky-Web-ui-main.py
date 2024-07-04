@@ -160,22 +160,33 @@ def generate_with_context(main_model: str, coding_model: str, prompt: str, max_l
         
         return chat_history_to_string(), "", chat_history_to_string(), audio_output, gr.update(value="")
 
-def continue_code_generation(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> gr.update:
-    # Analyze the current code to determine where to continue from
+def continue_code_generation(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> Tuple[gr.update, str]:
+    # Analyze the current code structure
     lines = current_code.split('\n')
-    last_line = lines[-1].strip()
+    
+    # Find the last complete code block (class, function, or main code)
+    last_block_start = 0
+    for i, line in enumerate(reversed(lines)):
+        if line.startswith('class ') or line.startswith('def ') or line.strip() == 'if __name__ == "__main__":':
+            last_block_start = len(lines) - i - 1
+            break
+    
+    # Extract the context (last few lines of the last complete block)
+    context_lines = lines[last_block_start:]
+    context = '\n'.join(context_lines)
     
     # Determine the indentation of the last line
-    indentation = len(lines[-1]) - len(lines[-1].lstrip())
+    last_non_empty_line = next((line for line in reversed(lines) if line.strip()), '')
+    indentation = len(last_non_empty_line) - len(last_non_empty_line.lstrip())
     
-    continuation_prompt = f"""Continue the following Python code. Analyze the existing code and continue from where it left off. Maintain the current structure and style. Only output code with proper comments. Do not include any explanations outside of code comments. Do not use markdown code block markers.
+    continuation_prompt = f"""Continue the following Python code. Analyze the existing code structure and continue from the last complete block or statement. Maintain the current class structure, function implementations, and coding style. Only output code with proper comments. Do not include any explanations outside of code comments. Do not repeat any existing code.
 
 User Request: {user_request}
 
-Current Code:
-{current_code}
+Current Code Context (last complete block or statement):
+{context}
 
-Continue from here, starting with the appropriate indentation:
+Continue from here, maintaining the appropriate indentation and structure:
 {' ' * indentation}"""
     
     try:
@@ -189,17 +200,21 @@ Continue from here, starting with the appropriate indentation:
             continuation = ' ' * indentation + continuation
         
         # Combine the current code with the continuation
-        full_code = current_code + '\n' + continuation
+        full_code = '\n'.join(lines[:last_block_start]) + '\n' + context + '\n' + continuation
         
         markdown_history.append(full_code)
         global current_markdown_index
         current_markdown_index = len(markdown_history) - 1
-        return gr.update(value=full_code)
+        
+        status = "Code continuation generated successfully."
+        return gr.update(value=full_code), status
     except Exception as e:
         logger.error(f"Error in continue_code_generation: {e}")
-        return gr.update(value=current_code + f"\n\n# Error occurred while generating continuation: {str(e)}")
+        error_message = f"Error occurred while generating continuation: {str(e)}"
+        return gr.update(value=current_code + f"\n\n# {error_message}"), error_message
 
-def refactor_code(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> gr.update:
+
+def refactor_code(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> Tuple[gr.update, str]:
     refactor_prompt = f"""Refactor the following Python code. Review the user request and the code generated so far, then provide a refactored version. Only output code with proper comments. Do not include any explanations outside of code comments. Do not use markdown code block markers.
 
 User Request: {user_request}
@@ -219,10 +234,13 @@ Refactored Code:
         markdown_history.append(refactored_code)
         global current_markdown_index
         current_markdown_index = len(markdown_history) - 1
-        return gr.update(value=refactored_code)
+        
+        status = "Code refactored successfully."
+        return gr.update(value=refactored_code), status
     except Exception as e:
         logger.error(f"Error in refactor_code: {e}")
-        return gr.update(value=current_code + f"\n\n# Error occurred while refactoring code: {str(e)}")
+        error_message = f"Error occurred while refactoring code: {str(e)}"
+        return gr.update(value=current_code + f"\n\n# {error_message}"), error_message
 
 def chat_history_to_string() -> str:
     chat_html = '<div style="display: flex; flex-direction: column; gap: 15px; font-size: 16px; width: 100%;">'
@@ -353,6 +371,9 @@ def create_interface():
                 with gr.Row():
                     continue_button = gr.Button("Continue Generation")
                     refactor_button = gr.Button("Refactor Code")
+                with gr.Row():
+                    code_status = gr.Textbox(label="Code Generation Status", interactive=False)
+
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -398,13 +419,13 @@ def create_interface():
         continue_button.click(
             continue_code_generation,
             inputs=[coding_model_dropdown, code_output, input_text, max_length, temperature, top_k, top_p],
-            outputs=[code_output]
-        )
+            outputs=[code_output, code_status]
+    )
 
         refactor_button.click(
             refactor_code,
             inputs=[coding_model_dropdown, code_output, input_text, max_length, temperature, top_k, top_p],
-            outputs=[code_output]
+            outputs=[code_output, code_status]
         )
 
         prev_button.click(partial(cycle_markdown, "prev"), outputs=[code_output])
