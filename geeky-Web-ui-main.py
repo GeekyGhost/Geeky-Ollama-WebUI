@@ -1,5 +1,5 @@
 import gradio as gr
-import requests
+import ollama
 import json
 import base64
 import os
@@ -10,76 +10,81 @@ import pyttsx3
 import concurrent.futures
 import logging
 import speech_recognition as sr
+from typing import List, Dict, Optional, Tuple
+from functools import partial
+from tqdm import tqdm
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Ollama API URL (local)
+# Constants
 OLLAMA_API_URL = "http://localhost:11434/api"
 
-# Chat history and sessions
-chat_history = []
-markdown_history = []
-current_markdown_index = 0
-sessions = {}
-current_session = None
+# Global variables
+chat_history: List[Dict[str, str]] = []
+markdown_history: List[str] = []
+current_markdown_index: int = 0
+sessions: Dict[str, Tuple[List[Dict[str, str]], List[str]]] = {}
+current_session: Optional[str] = None
 
-def get_available_models():
+# Create an Ollama client
+client = ollama.Client(host=OLLAMA_API_URL)
+
+def get_available_models() -> List[str]:
     try:
-        response = requests.get(f"{OLLAMA_API_URL}/tags")
-        response.raise_for_status()
-        models = json.loads(response.text)
+        models = client.list()
         return [model['name'] for model in models['models']]
     except Exception as e:
         logger.error(f"Error fetching models: {e}")
         return ["No models found"]
 
-def generate_text(model, prompt, max_length, temperature, top_k, top_p, num_sequences, image=None, context=None):
-    data = {
-        "model": model,
-        "prompt": prompt,
-        "options": {
-            "num_predict": max_length,
-            "temperature": temperature,
-            "top_k": top_k,
-            "top_p": top_p,
-        }
+def generate_text(model: str, prompt: str, max_length: int, temperature: float, top_k: int, top_p: float, num_sequences: int, image: Optional[str] = None, context: Optional[str] = None) -> str:
+    messages = [{'role': 'user', 'content': prompt}]
+    if context:
+        messages.insert(0, {'role': 'system', 'content': context})
+
+    options = {
+        'num_predict': max_length,
+        'temperature': temperature,
+        'top_k': top_k,
+        'top_p': top_p,
     }
 
     if image:
         try:
             with open(image, "rb") as image_file:
                 base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-            data["images"] = [base64_image]
-        except Exception as e:
+            messages[0]['images'] = [base64_image]
+        except IOError as e:
             logger.error(f"Error processing image: {e}")
 
-    if context:
-        data["prompt"] = f"Context: {context}\n\nPrompt: {prompt}"
-
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=num_sequences) as executor:
-            futures = [executor.submit(send_ollama_request, data) for _ in range(num_sequences)]
-            responses = [future.result() for future in concurrent.futures.as_completed(futures)]
+        responses = []
+        for _ in tqdm(range(num_sequences), desc="Generating sequences", unit="seq"):
+            response = client.chat(model=model, messages=messages, options=options, stream=True)
+            full_response = ""
+            for chunk in tqdm(response, desc="Processing response", leave=False):
+                full_response += chunk['message']['content']
+            responses.append(full_response)
         
         return "\n\n--- New Sequence ---\n\n".join(responses)
     except Exception as e:
         logger.error(f"Error in generate_text: {e}")
         return f"An error occurred: {str(e)}"
 
-def send_ollama_request(data):
+def send_ollama_request(data: Dict) -> str:
     try:
         response = requests.post(f"{OLLAMA_API_URL}/generate", json=data)
         response.raise_for_status()
         lines = response.text.strip().split('\n')
         full_response = "".join(json.loads(line)['response'] for line in lines if 'response' in json.loads(line))
         return full_response
-    except Exception as e:
+    except requests.RequestException as e:
         logger.error(f"Error in Ollama request: {e}")
         return f"Error: {str(e)}"
 
-def extract_text_from_document(file):
+def extract_text_from_document(file) -> Optional[str]:
     if file is None:
         return None
     
@@ -99,11 +104,11 @@ def extract_text_from_document(file):
         logger.error(f"Error extracting text from document: {e}")
         return f"Error processing document: {str(e)}"
 
-def get_available_voices():
+def get_available_voices() -> List[str]:
     engine = pyttsx3.init()
     return [voice.name for voice in engine.getProperty('voices')]
 
-def text_to_speech(text, voice_name):
+def text_to_speech(text: str, voice_name: str) -> Optional[str]:
     try:
         engine = pyttsx3.init()
         voices = engine.getProperty('voices')
@@ -119,71 +124,105 @@ def text_to_speech(text, voice_name):
         logger.error(f"Error in text-to-speech: {e}")
         return None
 
-def generate_with_context(main_model, coding_model, prompt, max_length, temperature, top_k, top_p, num_sequences, image, document, mode, voice_name, generate_voice):
+def generate_with_context(main_model: str, coding_model: str, prompt: str, max_length: int, temperature: float, top_k: int, top_p: float, num_sequences: int, image, document, mode: str, voice_name: str, generate_voice: bool):
     global chat_history, markdown_history, current_markdown_index
     context = extract_text_from_document(document) if document else None
     if chat_history:
         context = (context or "") + "\n\nChat History:\n" + "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history])
     
-    main_response = generate_text(main_model, prompt, max_length, temperature, top_k, top_p, num_sequences, image, context)
-    
-    chat_history.append({"role": "user", "content": prompt})
-    
-    audio_output = None
-    if generate_voice:
-        audio_output = text_to_speech(main_response, voice_name)
-    
     if mode == "Coding":
-        # Generate explanation and proposed changes
         explanation_prompt = f"Context: {context}\n\nUser Request: {prompt}\n\nProvide an explanation of the proposed changes and how to use them. Do not include any code in this response."
         explanation = generate_text(main_model, explanation_prompt, max_length, temperature, top_k, top_p, 1)
         
-        # Generate example code
         example_prompt = f"Context: {context}\n\nUser Request: {prompt}\n\nGenerate example code based on the request. Only include the code, no explanations."
         example_code = generate_text(main_model, example_prompt, max_length, temperature, top_k, top_p, 1)
         
-        # Send to coding model
-        coding_prompt = f"Context: {context}\n\nUser Request: {prompt}\n\nMain Model Explanation: {explanation}\n\nMain Model Example Code:\n{example_code}\n\nGenerate the final code based on the above context, explanation, and example. Only output the code, no explanations."
+        coding_prompt = f"Generate Python code based on the following request. Only output code with proper comments. Do not include any explanations outside of code comments.\n\nContext: {context}\n\nUser Request: {prompt}\n\nMain Model Explanation: {explanation}\n\nMain Model Example Code:\n{example_code}"
         code_response = generate_text(coding_model, coding_prompt, max_length, temperature, top_k, top_p, 1)
         
+        chat_history.append({"role": "user", "content": prompt})
         chat_history.append({"role": "assistant", "content": explanation})
         markdown_history.append(code_response)
         current_markdown_index = len(markdown_history) - 1
-        return chat_history_to_string(), code_response, chat_history_to_string(), audio_output, gr.update(value=code_response)
+        return chat_history_to_string(), code_response, chat_history_to_string(), None, gr.update(value=code_response)
     else:
+        main_response = generate_text(main_model, prompt, max_length, temperature, top_k, top_p, num_sequences, image, context)
+        chat_history.append({"role": "user", "content": prompt})
         chat_history.append({"role": "assistant", "content": main_response})
+        
+        audio_output = None
+        if generate_voice:
+            audio_output = text_to_speech(main_response, voice_name)
+        
         return chat_history_to_string(), "", chat_history_to_string(), audio_output, gr.update(value="")
 
-def continue_code_generation(coding_model, current_code, max_length, temperature, top_k, top_p):
-    continuation_prompt = f"Continue the following code:\n\n{current_code}\n\nContinue from here:"
-    continuation = generate_text(coding_model, continuation_prompt, max_length, temperature, top_k, top_p, 1)
-    full_code = current_code + "\n" + continuation
-    markdown_history.append(full_code)
-    global current_markdown_index
-    current_markdown_index = len(markdown_history) - 1
-    return gr.update(value=full_code)
+def continue_code_generation(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> gr.update:
+    continuation_prompt = f"""Continue the following Python code. Review the user request and the code generated so far, then continue from where it left off. Only output code with proper comments. Do not include any explanations outside of code comments.
 
-def chat_history_to_string():
+User Request: {user_request}
+
+Current Code:
+{current_code}
+
+Continue from here:
+"""
+    
+    try:
+        continuation = generate_text(coding_model, continuation_prompt, max_length, temperature, top_k, top_p, 1)
+        
+        # Remove any leading whitespace or newlines
+        continuation = continuation.lstrip()
+        
+        # Combine the current code with the continuation
+        full_code = current_code + '\n' + continuation
+        
+        markdown_history.append(full_code)
+        global current_markdown_index
+        current_markdown_index = len(markdown_history) - 1
+        return gr.update(value=full_code)
+    except Exception as e:
+        logger.error(f"Error in continue_code_generation: {e}")
+        return gr.update(value=current_code + f"\n\n# Error occurred while generating continuation: {str(e)}")
+
+def refactor_code(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> gr.update:
+    refactor_prompt = f"""Refactor the following Python code. Review the user request and the code generated so far, then provide a refactored version. Only output code with proper comments. Do not include any explanations outside of code comments.
+
+User Request: {user_request}
+
+Current Code:
+{current_code}
+
+Refactored Code:
+"""
+    
+    try:
+        refactored_code = generate_text(coding_model, refactor_prompt, max_length, temperature, top_k, top_p, 1)
+        
+        # Remove any leading whitespace or newlines
+        refactored_code = refactored_code.lstrip()
+        
+        markdown_history.append(refactored_code)
+        global current_markdown_index
+        current_markdown_index = len(markdown_history) - 1
+        return gr.update(value=refactored_code)
+    except Exception as e:
+        logger.error(f"Error in refactor_code: {e}")
+        return gr.update(value=current_code + f"\n\n# Error occurred while refactoring code: {str(e)}")
+
+def chat_history_to_string() -> str:
     chat_html = '<div style="display: flex; flex-direction: column; gap: 15px; font-size: 16px; width: 100%;">'
-    for i, msg in enumerate(chat_history):
-        if msg['role'] == 'user':
-            chat_html += f'''
-            <div style="align-self: flex-end; max-width: 80%; background-color: #1982FC; color: white; padding: 12px 18px; border-radius: 20px 20px 0 20px; position: relative; word-wrap: break-word;">
-                <div style="font-size: 1.1em;">{msg["content"]}</div>
-                <div style="font-size: 0.8em; opacity: 0.7; text-align: right; margin-top: 5px;">You</div>
-            </div>
-            '''
-        else:
-            chat_html += f'''
-            <div style="align-self: flex-start; max-width: 80%; background-color: #34C759; color: white; padding: 12px 18px; border-radius: 20px 20px 20px 0; position: relative; word-wrap: break-word;">
-                <div style="font-size: 1.1em;">{msg["content"]}</div>
-                <div style="font-size: 0.8em; opacity: 0.7; margin-top: 5px;">Assistant</div>
-            </div>
-            '''
+    for msg in chat_history:
+        style = "align-self: flex-end; background-color: #1982FC;" if msg['role'] == 'user' else "align-self: flex-start; background-color: #34C759;"
+        chat_html += f'''
+        <div style="{style} max-width: 80%; color: white; padding: 12px 18px; border-radius: 20px; position: relative; word-wrap: break-word;">
+            <div style="font-size: 1.1em;">{msg["content"]}</div>
+            <div style="font-size: 0.8em; opacity: 0.7; {'text-align: right; ' if msg['role'] == 'user' else ''}margin-top: 5px;">{msg['role'].capitalize()}</div>
+        </div>
+        '''
     chat_html += '</div>'
     return chat_html
 
-def cycle_markdown(direction):
+def cycle_markdown(direction: str) -> str:
     global current_markdown_index
     if direction == "next" and current_markdown_index < len(markdown_history) - 1:
         current_markdown_index += 1
@@ -191,22 +230,21 @@ def cycle_markdown(direction):
         current_markdown_index -= 1
     return markdown_history[current_markdown_index]
 
-def markdown_history_to_string():
+def markdown_history_to_string() -> str:
     return "\n\n---\n\n".join(markdown_history)
 
-def record_audio():
+def record_audio() -> str:
     recognizer = sr.Recognizer()
     with sr.Microphone() as source:
         audio = recognizer.listen(source)
     try:
-        text = recognizer.recognize_google(audio)
-        return text
+        return recognizer.recognize_google(audio)
     except sr.UnknownValueError:
         return "Could not understand audio"
     except sr.RequestError as e:
         return f"Could not request results; {e}"
 
-def new_session():
+def new_session() -> Tuple[gr.update, str, str]:
     global current_session, chat_history, markdown_history
     if current_session:
         sessions[current_session] = (chat_history, markdown_history)
@@ -215,14 +253,14 @@ def new_session():
     markdown_history = []
     return gr.update(choices=list(sessions.keys()) + [current_session], value=current_session), "", ""
 
-def load_session(session_name):
+def load_session(session_name: str) -> Tuple[str, str]:
     global current_session, chat_history, markdown_history
     if session_name in sessions:
         current_session = session_name
         chat_history, markdown_history = sessions[session_name]
     return chat_history_to_string(), markdown_history_to_string()
 
-def delete_session(session_name):
+def delete_session(session_name: str) -> Tuple[gr.update, str, str]:
     global current_session, chat_history, markdown_history
     if session_name in sessions:
         del sessions[session_name]
@@ -232,146 +270,160 @@ def delete_session(session_name):
             markdown_history = []
     return gr.update(choices=list(sessions.keys())), "", ""
 
-def download_code(code):
+def download_code(code: str) -> str:
     with open("code_output.txt", "w") as f:
         f.write(code)
     return "code_output.txt"
 
-def download_model(model_name):
+def download_model(model_name: str) -> str:
     try:
-        result = subprocess.run(['ollama', 'run', model_name], capture_output=True, text=True)
+        result = subprocess.run(['ollama', 'run', model_name], capture_output=True, text=True, check=True)
         return f"Model {model_name} downloaded successfully."
     except subprocess.CalledProcessError as e:
         return f"Error downloading model: {e.output}"
 
-def delete_model(model_name):
+def delete_model(model_name: str) -> str:
     try:
-        result = subprocess.run(['ollama', 'rm', model_name], capture_output=True, text=True)
+        result = subprocess.run(['ollama', 'rm', model_name], capture_output=True, text=True, check=True)
         return f"Model {model_name} deleted successfully."
     except subprocess.CalledProcessError as e:
         return f"Error deleting model: {e.output}"
 
-def load_modelfile(model_name):
+def load_modelfile(model_name: str) -> str:
     try:
-        result = subprocess.run(['ollama', 'show', model_name], capture_output=True, text=True)
+        result = subprocess.run(['ollama', 'show', model_name], capture_output=True, text=True, check=True)
         return result.stdout
     except subprocess.CalledProcessError as e:
         return f"Error loading modelfile: {e.output}"
 
-def save_modelfile(model_name, modelfile_content):
+def save_modelfile(model_name: str, modelfile_content: str) -> str:
     try:
         with open(f"{model_name}.modelfile", "w") as f:
             f.write(modelfile_content)
-        result = subprocess.run(['ollama', 'create', model_name, '-f', f"{model_name}.modelfile"], capture_output=True, text=True)
+        result = subprocess.run(['ollama', 'create', model_name, '-f', f"{model_name}.modelfile"], capture_output=True, text=True, check=True)
         os.remove(f"{model_name}.modelfile")
         return f"Modelfile for {model_name} saved and applied successfully."
     except Exception as e:
         return f"Error saving modelfile: {str(e)}"
 
 # Gradio interface setup
-with gr.Blocks(title="Enhanced Ollama Text Generation", 
-               theme=gr.themes.Base(),
-               css="footer {display:none} .container {max-width: 100% !important; padding: 0 !important;}") as iface:
-    gr.Markdown("# Enhanced Ollama Text Generation")
-    
-    with gr.Row():
-        with gr.Column(scale=3):
-            main_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Main Model", value=get_available_models()[0] if get_available_models() else None)
-            chat_display = gr.HTML(label="Chat History")
-            with gr.Row():
-                input_text = gr.Textbox(lines=2, label="Input Prompt", placeholder="Type your message here...", scale=20)
-                mic_button = gr.Button("🎤", scale=1)
-                generate_button = gr.Button("Generate", scale=3)
-            with gr.Row():
-                mode_radio = gr.Radio(["Chat", "Coding"], label="Mode", value="Chat")
-                generate_voice_checkbox = gr.Checkbox(label="Generate Voice", value=False)
-            voice_dropdown = gr.Dropdown(choices=get_available_voices(), label="Select Voice", value=get_available_voices()[0] if get_available_voices() else None)
-            audio_output = gr.Audio(label="Voice Output", visible=False)
-        
-        with gr.Column(scale=2):
-            coding_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Coding Model", value=get_available_models()[0] if get_available_models() else None)
-            code_output = gr.Code(label="Code Output", language="python")
-            with gr.Row():
-                prev_button = gr.Button("◀ Previous")
-                next_button = gr.Button("Next ▶")
-                download_button = gr.Button("Download Code")
-                copy_button = gr.Button("Copy to Clipboard")
-            continue_button = gr.Button("Continue Generation")
-
-    with gr.Row():
-        with gr.Column(scale=1):
-            image_input = gr.Image(type="filepath", label="Upload Image")
-            document_input = gr.File(label="Upload Document for Context (RAG)")
-        with gr.Column(scale=2):
-            max_length = gr.Slider(50, 42000, value=250, step=10, label="Max Length")
-            temperature = gr.Slider(0.1, 2.0, value=1.0, step=0.1, label="Temperature")
-            top_k = gr.Slider(0, 100, value=50, step=1, label="Top-k")
-            top_p = gr.Slider(0.0, 1.0, value=0.9, step=0.05, label="Top-p (nucleus sampling)")
-            num_sequences = gr.Slider(1, 5, value=1, step=1, label="Number of Sequences")
-
-    with gr.Row():
-        new_session_button = gr.Button("New Session")
-        session_dropdown = gr.Dropdown(choices=[], label="Load Session")
-        load_session_button = gr.Button("Load Selected Session")
-        delete_session_button = gr.Button("Delete Selected Session")
-
-    generate_button.click(
-        generate_with_context,
-        inputs=[main_model_dropdown, coding_model_dropdown, input_text, max_length, temperature, top_k, top_p, num_sequences, image_input, document_input, mode_radio, voice_dropdown, generate_voice_checkbox],
-        outputs=[chat_display, code_output, chat_display, audio_output, code_output]
-    )
-
-    continue_button.click(
-        continue_code_generation,
-        inputs=[coding_model_dropdown, code_output, max_length, temperature, top_k, top_p],
-        outputs=[code_output]
-    )
-
-    prev_button.click(lambda: cycle_markdown("prev"), outputs=[code_output])
-    next_button.click(lambda: cycle_markdown("next"), outputs=[code_output])
-
-    mic_button.click(record_audio, outputs=input_text)
-
-    new_session_button.click(new_session, outputs=[session_dropdown, chat_display, code_output])
-    load_session_button.click(load_session, inputs=[session_dropdown], outputs=[chat_display, code_output])
-    delete_session_button.click(delete_session, inputs=[session_dropdown], outputs=[session_dropdown, chat_display, code_output])
-
-    generate_voice_checkbox.change(lambda x: gr.update(visible=x), inputs=[generate_voice_checkbox], outputs=[audio_output])
-
-    download_button.click(download_code, inputs=[code_output], outputs=[gr.File()])
-    copy_button.click(lambda x: gr.update(value=x), inputs=[code_output], outputs=[gr.Textbox(visible=False)])
-
-    with gr.Tab("Model Management"):
-        with gr.Row():
-            model_name_input = gr.Textbox(label="Model Name")
-            download_button = gr.Button("Download Model")
-            delete_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Model to Delete")
-            delete_button = gr.Button("Delete Selected Model")
+def create_interface():
+    with gr.Blocks(title="Enhanced Ollama Text Generation", 
+                   theme=gr.themes.Base(),
+                   css="footer {display:none} .container {max-width: 100% !important; padding: 0 !important;}") as iface:
+        gr.Markdown("# Enhanced Ollama Text Generation")
         
         with gr.Row():
-            load_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Model to Load Modelfile")
-            load_modelfile_button = gr.Button("Load Modelfile")
-        
+            with gr.Column(scale=3):
+                main_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Main Model", value=get_available_models()[0] if get_available_models() else None)
+                chat_display = gr.HTML(label="Chat History")
+                with gr.Row():
+                    input_text = gr.Textbox(lines=2, label="Input Prompt", placeholder="Type your message here...", scale=20)
+                    mic_button = gr.Button("🎤", scale=1)
+                    generate_button = gr.Button("Generate", scale=3)
+                with gr.Row():
+                    mode_radio = gr.Radio(["Chat", "Coding"], label="Mode", value="Chat")
+                    generate_voice_checkbox = gr.Checkbox(label="Generate Voice", value=False)
+                voice_dropdown = gr.Dropdown(choices=get_available_voices(), label="Select Voice", value=get_available_voices()[0] if get_available_voices() else None)
+                audio_output = gr.Audio(label="Voice Output", visible=False)
+            
+            with gr.Column(scale=2):
+                coding_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Coding Model", value=get_available_models()[0] if get_available_models() else None)
+                code_output = gr.Code(label="Code Output", language="python")
+                with gr.Row():
+                    prev_button = gr.Button("◀ Previous")
+                    next_button = gr.Button("Next ▶")
+                    download_button = gr.Button("Download Code")
+                    copy_button = gr.Button("Copy to Clipboard")
+                with gr.Row():
+                    continue_button = gr.Button("Continue Generation")
+                    refactor_button = gr.Button("Refactor Code")
+
         with gr.Row():
-            modelfile_input = gr.TextArea(lines=10, label="Modelfile Content")
-            save_modelfile_button = gr.Button("Save Modelfile")
-        
-        model_management_output = gr.Textbox(label="Output", lines=5)
+            with gr.Column(scale=1):
+                image_input = gr.Image(type="filepath", label="Upload Image")
+                document_input = gr.File(label="Upload Document for Context (RAG)")
+            with gr.Column(scale=2):
+                max_length = gr.Slider(50, 42000, value=250, step=10, label="Max Length")
+                temperature = gr.Slider(0.1, 2.0, value=0.7, step=0.1, label="Temperature")
+                top_k = gr.Slider(0, 100, value=40, step=1, label="Top-k")
+                top_p = gr.Slider(0.0, 1.0, value=0.9, step=0.05, label="Top-p (nucleus sampling)")
+                num_sequences = gr.Slider(1, 5, value=1, step=1, label="Number of Sequences")
+
+        with gr.Row():
+            new_session_button = gr.Button("New Session")
+            session_dropdown = gr.Dropdown(choices=[], label="Load Session")
+            load_session_button = gr.Button("Load Selected Session")
+            delete_session_button = gr.Button("Delete Selected Session")
+
+        with gr.Tab("Model Management"):
+            with gr.Row():
+                model_name_input = gr.Textbox(label="Model Name")
+                download_button = gr.Button("Download Model")
+                delete_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Model to Delete")
+                delete_button = gr.Button("Delete Selected Model")
+            
+            with gr.Row():
+                load_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Model to Load Modelfile")
+                load_modelfile_button = gr.Button("Load Modelfile")
+            
+            with gr.Row():
+                modelfile_input = gr.TextArea(lines=10, label="Modelfile Content")
+                save_modelfile_button = gr.Button("Save Modelfile")
+            
+            model_management_output = gr.Textbox(label="Output", lines=5)
+
+        # Event handlers
+        generate_button.click(
+            generate_with_context,
+            inputs=[main_model_dropdown, coding_model_dropdown, input_text, max_length, temperature, top_k, top_p, num_sequences, image_input, document_input, mode_radio, voice_dropdown, generate_voice_checkbox],
+            outputs=[chat_display, code_output, chat_display, audio_output, code_output]
+        )
+
+        continue_button.click(
+            continue_code_generation,
+            inputs=[coding_model_dropdown, code_output, input_text, max_length, temperature, top_k, top_p],
+            outputs=[code_output]
+        )
+
+        refactor_button.click(
+            refactor_code,
+            inputs=[coding_model_dropdown, code_output, input_text, max_length, temperature, top_k, top_p],
+            outputs=[code_output]
+        )
+
+        prev_button.click(partial(cycle_markdown, "prev"), outputs=[code_output])
+        next_button.click(partial(cycle_markdown, "next"), outputs=[code_output])
+
+        mic_button.click(record_audio, outputs=[input_text])
+
+        new_session_button.click(new_session, outputs=[session_dropdown, chat_display, code_output])
+        load_session_button.click(load_session, inputs=[session_dropdown], outputs=[chat_display, code_output])
+        delete_session_button.click(delete_session, inputs=[session_dropdown], outputs=[session_dropdown, chat_display, code_output])
+
+        generate_voice_checkbox.change(lambda x: gr.update(visible=x), inputs=[generate_voice_checkbox], outputs=[audio_output])
+
+        download_button.click(download_code, inputs=[code_output], outputs=[gr.File()])
+        copy_button.click(lambda x: gr.update(value=x), inputs=[code_output], outputs=[gr.Textbox(visible=False)])
 
         delete_button.click(delete_model, inputs=[delete_model_dropdown], outputs=[model_management_output])
         load_modelfile_button.click(load_modelfile, inputs=[load_model_dropdown], outputs=[modelfile_input])
         save_modelfile_button.click(save_modelfile, inputs=[model_name_input, modelfile_input], outputs=[model_management_output])
 
-    gr.Markdown("""
-    ## Parameter Explanations:
-    - **Max Length**: The maximum number of tokens in the generated text.
-    - **Temperature**: Controls randomness. Lower values make the output more focused and deterministic.
-    - **Top-k**: Limits the next token selection to the k most probable tokens.
-    - **Top-p (nucleus sampling)**: Dynamically selects the smallest set of tokens whose cumulative probability exceeds p.
-    """)
+        gr.Markdown("""
+        ## Parameter Explanations:
+        - **Max Length**: The maximum number of tokens in the generated text.
+        - **Temperature**: Controls randomness. Lower values make the output more focused and deterministic.
+        - **Top-k**: Limits the next token selection to the k most probable tokens.
+        - **Top-p (nucleus sampling)**: Dynamically selects the smallest set of tokens whose cumulative probability exceeds p.
+        """)
 
+    return iface
+
+# Main execution
 if __name__ == "__main__":
     try:
+        iface = create_interface()
         iface.launch(share=False, server_name="127.0.0.1")
     except Exception as e:
         logger.error(f"Error launching Gradio interface: {e}")
@@ -379,8 +431,8 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
 
-# Add custom CSS and JavaScript for chat bubbles and full-width layout
-iface.load(css="""
+# CSS styles
+custom_css = """
     .chat-container {
         display: flex;
         flex-direction: column;
@@ -396,13 +448,13 @@ iface.load(css="""
         word-wrap: break-word;
     }
     .user {
-        background-color: ##34C759;
+        background-color: #1982FC;
         align-self: flex-end;
         border-bottom-right-radius: 20px;
         border-bottom-left-radius: 5px;
     }
     .assistant {
-        background-color: #34C759;  /* Changed to green */
+        background-color: #34C759;
         align-self: flex-start;
         border-bottom-left-radius: 20px;
         border-bottom-right-radius: 5px;
@@ -432,7 +484,10 @@ iface.load(css="""
     #continue-button {
         margin-top: 10px;
     }
-""", js="""
+"""
+
+# JavaScript for chat bubble toggling
+custom_js = """
     function toggleChatBubble(id) {
         const chatBubble = document.getElementById(`chat-${id}`);
         const content = chatBubble.querySelector('.chat-content');
@@ -446,4 +501,7 @@ iface.load(css="""
             toggleIcon.textContent = '[+]';
         }
     }
-""")
+"""
+
+# Apply custom CSS and JavaScript
+iface.load(css=custom_css, js=custom_js)
