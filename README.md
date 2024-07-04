@@ -3,9 +3,9 @@ Work in progress. Geeky Ollama Web ui, working on RAG, most else works fine. Rew
 
 v2 - geeky-Web-ui-main.py
 
-<img width="910" alt="Screenshot 2024-07-04 045448" src="https://github.com/GeekyGhost/Geeky-Ollama-WebUI/assets/111990299/770d7827-4629-4aee-b4db-4791cdb5c031">
-<img width="926" alt="Screenshot 2024-07-04 045510" src="https://github.com/GeekyGhost/Geeky-Ollama-WebUI/assets/111990299/b9ac39c6-f3bb-410c-9529-2134ff80e41e">
 <img width="875" alt="Screenshot 2024-07-04 045428" src="https://github.com/GeekyGhost/Geeky-Ollama-WebUI/assets/111990299/6e42de3e-7c78-4c4e-8240-d54610c6b36e">
+<img width="926" alt="Screenshot 2024-07-04 045510" src="https://github.com/GeekyGhost/Geeky-Ollama-WebUI/assets/111990299/b9ac39c6-f3bb-410c-9529-2134ff80e41e">
+
 
 
 v1 - geekyOllana-Web-ui-main.py
