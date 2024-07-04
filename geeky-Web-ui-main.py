@@ -66,6 +66,10 @@ def generate_text(model: str, prompt: str, max_length: int, temperature: float, 
             full_response = ""
             for chunk in tqdm(response, desc="Processing response", leave=False):
                 full_response += chunk['message']['content']
+            
+            # Remove ```python and ``` markers
+            full_response = full_response.replace("```python", "").replace("```", "").strip()
+            
             responses.append(full_response)
         
         return "\n\n--- New Sequence ---\n\n".join(responses)
@@ -157,21 +161,32 @@ def generate_with_context(main_model: str, coding_model: str, prompt: str, max_l
         return chat_history_to_string(), "", chat_history_to_string(), audio_output, gr.update(value="")
 
 def continue_code_generation(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> gr.update:
-    continuation_prompt = f"""Continue the following Python code. Review the user request and the code generated so far, then continue from where it left off. Only output code with proper comments. Do not include any explanations outside of code comments.
+    # Analyze the current code to determine where to continue from
+    lines = current_code.split('\n')
+    last_line = lines[-1].strip()
+    
+    # Determine the indentation of the last line
+    indentation = len(lines[-1]) - len(lines[-1].lstrip())
+    
+    continuation_prompt = f"""Continue the following Python code. Analyze the existing code and continue from where it left off. Maintain the current structure and style. Only output code with proper comments. Do not include any explanations outside of code comments. Do not use markdown code block markers.
 
 User Request: {user_request}
 
 Current Code:
 {current_code}
 
-Continue from here:
-"""
+Continue from here, starting with the appropriate indentation:
+{' ' * indentation}"""
     
     try:
         continuation = generate_text(coding_model, continuation_prompt, max_length, temperature, top_k, top_p, 1)
         
         # Remove any leading whitespace or newlines
         continuation = continuation.lstrip()
+        
+        # Ensure the continuation starts with the correct indentation
+        if not continuation.startswith(' ' * indentation):
+            continuation = ' ' * indentation + continuation
         
         # Combine the current code with the continuation
         full_code = current_code + '\n' + continuation
@@ -185,7 +200,7 @@ Continue from here:
         return gr.update(value=current_code + f"\n\n# Error occurred while generating continuation: {str(e)}")
 
 def refactor_code(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> gr.update:
-    refactor_prompt = f"""Refactor the following Python code. Review the user request and the code generated so far, then provide a refactored version. Only output code with proper comments. Do not include any explanations outside of code comments.
+    refactor_prompt = f"""Refactor the following Python code. Review the user request and the code generated so far, then provide a refactored version. Only output code with proper comments. Do not include any explanations outside of code comments. Do not use markdown code block markers.
 
 User Request: {user_request}
 
