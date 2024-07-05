@@ -12,106 +12,74 @@ v1 - geekyOllana-Web-ui-main.py
 
 https://github.com/GeekyGhost/Geeky-Ollama-WebUI/assets/111990299/4bf7f250-f9ed-41e4-8cb9-4f80a8781a76
 
-Overview:
-This code implements an "Enhanced Ollama Text Generation" interface using Gradio. It's designed to interact with Ollama, a local large language model (LLM) server, providing a user-friendly web interface for text generation, coding assistance, and various other AI-powered features.
-Key Components and Functionality:
+For Users:
+This script is a powerful and versatile AI-assisted coding and chat interface. It leverages the Ollama AI model to provide various functionalities:
 
-Ollama Integration:
+Chat Interface: Users can have conversations with the AI, asking questions or seeking information on various topics.
+Code Generation: The AI can generate Python code based on user requests, making it an excellent tool for programmers of all levels.
+Code Continuation and Refactoring: The interface allows users to continue writing code from where they left off or refactor existing code with AI assistance.
+Voice Generation: It can convert text responses into speech, making it accessible for users who prefer audio output.
+Document Analysis: Users can upload documents (PDF, DOCX, TXT) for the AI to use as context in its responses.
+Image Analysis: For compatible models, users can upload images for the AI to analyze and discuss.
+Model Management: Users can download, delete, and manage different AI models directly from the interface.
+Code Execution and Linting: The interface allows users to execute Python code and check it for potential issues.
+Library Explorer: Users can explore and import Python libraries directly from the interface.
 
-Connects to a locally running Ollama server (http://localhost:11434/api).
-Supports multiple Ollama models for text generation and coding tasks.
+Key features include the ability to switch between chat and coding modes, adjust AI generation parameters, manage multiple chat sessions, and customize voice output.
+For Developers:
+At a high level, this script creates a Gradio-based web interface that interacts with the Ollama API to provide AI-assisted functionalities. Here's a breakdown of the main components:
 
+Imports and Setup:
 
-User Interface:
-
-Built with Gradio, offering a web-based interface accessible through a browser.
-Includes separate areas for chat interaction and code output.
-
-
-Text Generation:
-
-Users can input prompts and generate responses from selected Ollama models.
-Supports context-aware generation, incorporating chat history and uploaded documents.
-
-
-Coding Assistance:
-
-Dedicated mode for coding tasks with a separate model selection.
-Generates code explanations and implementations based on user requests.
+The script uses various libraries like gradio, ollama, PyPDF2, pyttsx3, and others for different functionalities.
+It sets up logging and defines global variables for managing chat history and sessions.
 
 
-Voice Interaction:
+Ollama Client:
 
-Text-to-speech functionality to vocalize AI responses.
-Speech-to-text capability for voice input.
-
-
-Document Processing:
-
-Supports uploading and processing PDF, DOCX, and TXT files for context.
+An Ollama client is created to interact with the Ollama API.
 
 
-Image Input:
+Utility Functions:
 
-Allows image uploads for potential image-based prompts or analysis.
-
-
-Session Management:
-
-Create, load, and delete chat sessions.
+Functions like get_available_models(), extract_text_from_document(), text_to_speech() handle various tasks.
 
 
-Model Management:
+Core Functionality:
 
-Interface to download, delete, and manage Ollama models.
-View and edit model configurations (modelfiles).
-
-
-Customizable Generation Parameters:
-
-Adjustable settings like max length, temperature, top-k, and top-p for fine-tuning outputs.
+generate_text(): Handles the main interaction with the Ollama API for text generation.
+generate_with_context(): Manages the generation of responses in both chat and coding modes.
+continue_code_generation() and refactor_code(): Handle code continuation and refactoring.
 
 
+Interface Management:
 
-How to Use:
+Functions like new_session(), load_session(), delete_session() manage chat sessions.
+download_model(), delete_model(), load_modelfile(), save_modelfile() handle model management.
 
-Ensure Ollama is installed and running locally.
-Install required dependencies using the provided requirements.txt.
-Run the script to launch the Gradio interface.
-Select models for main conversation and coding tasks.
-Input prompts in the text area or use voice input.
-Adjust generation parameters as needed.
-Toggle between chat and coding modes for different tasks.
-Utilize document upload for additional context in conversations.
-Manage sessions and models through the provided interface.
 
-Unique Features:
+Code Analysis:
 
-Integration of chat and coding assistance in one interface.
-Local LLM usage, ensuring privacy and potentially faster response times.
-Flexible model selection for different tasks.
-Voice interaction capabilities.
-Document and image input for enhanced context.
-Customizable AI parameters for fine-tuned outputs.
+execute_code(): Runs Python code in a restricted environment.
+lint_code(): Performs basic code analysis.
 
-Work in Progress:
-This code is a work in progress, which means:
 
-It may contain bugs or unoptimized sections.
-Some features might not be fully implemented or tested.
-The user interface and functionality are subject to change and improvement.
-Error handling and edge cases might not be fully addressed.
-Documentation and code comments may be incomplete.
-Performance optimizations are likely needed for larger scale use.
+Gradio Interface:
 
-Future improvements could include:
+create_interface(): Sets up the Gradio web interface with various components like dropdowns, buttons, and text areas.
 
-Enhanced error handling and user feedback.
-More robust session management and data persistence.
-Expanded model management features.
-Improved UI/UX design.
-Additional integrations with other AI services or tools.
-Optimizations for performance and resource usage.
 
-This project showcases an ambitious attempt to create a versatile, user-friendly interface for interacting with local LLMs, combining various AI-powered features in a single application. As it evolves, it has the potential to become a powerful tool for developers, researchers, and AI enthusiasts working with language models.
+Main Execution:
 
+The script creates and launches the Gradio interface when run as the main program.
+
+
+
+Novel Approaches:
+
+Integration of multiple AI functionalities (chat, code generation, voice synthesis) in a single interface.
+Use of AST (Abstract Syntax Tree) for code analysis and continuation.
+Implementation of a restricted Python execution environment for safe code running.
+Dynamic model management directly from the interface.
+
+The script demonstrates advanced use of the Gradio library, showcasing how to create a complex, multi-functional interface. It also shows effective integration with external APIs (Ollama) and handling of various data types (text, code, audio, images).
