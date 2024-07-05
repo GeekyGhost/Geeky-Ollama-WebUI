@@ -13,6 +13,21 @@ import speech_recognition as sr
 from typing import List, Dict, Optional, Tuple
 from functools import partial
 from tqdm import tqdm
+import re
+import ast
+import pylint.lint
+from pylint.lint import Run
+from pylint.reporters.text import TextReporter
+import io
+import sys
+from RestrictedPython import compile_restricted
+from RestrictedPython.Guards import safe_builtins
+from RestrictedPython.PrintCollector import PrintCollector
+import pkgutil
+import importlib
+import jedi
+import traceback
+
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,6 +42,7 @@ markdown_history: List[str] = []
 current_markdown_index: int = 0
 sessions: Dict[str, Tuple[List[Dict[str, str]], List[str]]] = {}
 current_session: Optional[str] = None
+code_versions: List[str] = []
 
 # Create an Ollama client
 client = ollama.Client(host=OLLAMA_API_URL)
@@ -97,6 +113,10 @@ def extract_text_from_document(file) -> Optional[str]:
         logger.error(f"Error extracting text from document: {e}")
         return f"Error processing document: {str(e)}"
 
+def extract_code_snippets(text: str) -> List[str]:
+    code_pattern = re.compile(r'```python(.*?)```', re.DOTALL)
+    return code_pattern.findall(text)
+
 def get_available_voices() -> List[str]:
     engine = pyttsx3.init()
     return [voice.name for voice in engine.getProperty('voices')]
@@ -124,19 +144,23 @@ def generate_with_context(main_model: str, coding_model: str, prompt: str, max_l
         context = (context or "") + "\n\nChat History:\n" + "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history])
     
     if mode == "Coding":
-        explanation_prompt = f"Context: {context}\n\nUser Request: {prompt}\n\nProvide an explanation of the proposed changes and how to use them. Do not include any code in this response."
+        code_snippets = extract_code_snippets(context) if context else []
+        context_with_snippets = (context or "") + "\n\nRelevant Code Snippets:\n" + "\n".join(code_snippets)
+        
+        explanation_prompt = f"Context: {context_with_snippets}\n\nUser Request: {prompt}\n\nProvide an explanation of the proposed changes and how to use them. Do not include any code in this response."
         explanation = generate_text(main_model, explanation_prompt, max_length, temperature, top_k, top_p, 1)
         
-        example_prompt = f"Context: {context}\n\nUser Request: {prompt}\n\nGenerate example code based on the request. Only include the code, no explanations."
+        example_prompt = f"Context: {context_with_snippets}\n\nUser Request: {prompt}\n\nGenerate example code based on the request. Only include the code, no explanations."
         example_code = generate_text(main_model, example_prompt, max_length, temperature, top_k, top_p, 1)
         
-        coding_prompt = f"Generate Python code based on the following request. Only output code with proper comments. Do not include any explanations outside of code comments.\n\nContext: {context}\n\nUser Request: {prompt}\n\nMain Model Explanation: {explanation}\n\nMain Model Example Code:\n{example_code}"
+        coding_prompt = f"Generate Python code based on the following request. Only output code with proper comments. Do not include any explanations outside of code comments.\n\nContext: {context_with_snippets}\n\nUser Request: {prompt}\n\nMain Model Explanation: {explanation}\n\nMain Model Example Code:\n{example_code}"
         code_response = generate_text(coding_model, coding_prompt, max_length, temperature, top_k, top_p, 1)
         
         chat_history.append({"role": "user", "content": prompt})
         chat_history.append({"role": "assistant", "content": explanation})
         markdown_history.append(code_response)
         current_markdown_index = len(markdown_history) - 1
+        code_versions.append(code_response)
         return chat_history_to_string(), code_response, chat_history_to_string(), None, gr.update(value=code_response)
     else:
         main_response = generate_text(main_model, prompt, max_length, temperature, top_k, top_p, num_sequences, image, context)
@@ -150,35 +174,53 @@ def generate_with_context(main_model: str, coding_model: str, prompt: str, max_l
         return chat_history_to_string(), "", chat_history_to_string(), audio_output, gr.update(value="")
 
 def continue_code_generation(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> Tuple[gr.update, str]:
-    # Analyze the current code structure
-    lines = current_code.split('\n')
-    
-    # Find the last complete code block (class, function, or main code)
-    last_block_start = 0
-    for i, line in enumerate(reversed(lines)):
-        if line.startswith('class ') or line.startswith('def ') or line.strip() == 'if __name__ == "__main__":':
-            last_block_start = len(lines) - i - 1
-            break
-    
-    # Extract the context (last few lines of the last complete block)
-    context_lines = lines[last_block_start:]
-    context = '\n'.join(context_lines)
-    
-    # Determine the indentation of the last line
-    last_non_empty_line = next((line for line in reversed(lines) if line.strip()), '')
-    indentation = len(last_non_empty_line) - len(last_non_empty_line.lstrip())
-    
-    continuation_prompt = f"""Continue the following Python code. Analyze the existing code structure and continue from the last complete block or statement. Maintain the current class structure, function implementations, and coding style. Only output code with proper comments. Do not include any explanations outside of code comments. Do not repeat any existing code.
+    try:
+        # Try to parse the current code
+        try:
+            tree = ast.parse(current_code)
+        except IndentationError as ie:
+            # If there's an indentation error, try to fix it
+            lines = current_code.split('\n')
+            fixed_lines = []
+            for line in lines:
+                if line.strip():  # If the line is not empty
+                    fixed_lines.append(line.strip())  # Remove leading/trailing whitespace
+                else:
+                    fixed_lines.append('')  # Keep empty lines
+            fixed_code = '\n'.join(fixed_lines)
+            tree = ast.parse(fixed_code)
+            current_code = fixed_code
+        
+        # Find the last complete code block (class, function, or main code)
+        last_node = tree.body[-1] if tree.body else None
+        last_block_start = 0
+        if last_node:
+            last_block_start = last_node.lineno - 1
+        
+        # Extract the context (last few lines of the last complete block)
+        lines = current_code.split('\n')
+        context_lines = lines[last_block_start:]
+        context = '\n'.join(context_lines)
+        
+        # Implement a sliding context window
+        max_context_lines = 50  # Adjust this value as needed
+        if len(context_lines) > max_context_lines:
+            context = '\n'.join(context_lines[-max_context_lines:])
+        
+        # Determine the indentation of the last line
+        last_non_empty_line = next((line for line in reversed(lines) if line.strip()), '')
+        indentation = len(last_non_empty_line) - len(last_non_empty_line.lstrip())
+        
+        continuation_prompt = f"""Continue the following Python code. Analyze the existing code structure and continue from the last complete block or statement. Maintain the current class structure, function implementations, and coding style. Only output code with proper comments. Do not include any explanations outside of code comments. Do not repeat any existing code.
 
 User Request: {user_request}
 
-Current Code Context (last complete block or statement):
+Current Code Context (last {max_context_lines} lines or less):
 {context}
 
 Continue from here, maintaining the appropriate indentation and structure:
 {' ' * indentation}"""
-    
-    try:
+        
         continuation = generate_text(coding_model, continuation_prompt, max_length, temperature, top_k, top_p, 1)
         
         # Remove any leading whitespace or newlines
@@ -191,19 +233,44 @@ Continue from here, maintaining the appropriate indentation and structure:
         # Combine the current code with the continuation
         full_code = '\n'.join(lines[:last_block_start]) + '\n' + context + '\n' + continuation
         
+        # Verify the generated code
+        try:
+            ast.parse(full_code)
+        except SyntaxError as se:
+            return gr.update(value=full_code), f"Generated code has a syntax error: {str(se)}"
+        except IndentationError as ie:
+            return gr.update(value=full_code), f"Generated code has an indentation error: {str(ie)}"
+        
         markdown_history.append(full_code)
         global current_markdown_index
         current_markdown_index = len(markdown_history) - 1
+        code_versions.append(full_code)
         
         status = "Code continuation generated successfully."
         return gr.update(value=full_code), status
     except Exception as e:
-        logger.error(f"Error in continue_code_generation: {e}")
-        error_message = f"Error occurred while generating continuation: {str(e)}"
-        return gr.update(value=current_code + f"\n\n# {error_message}"), error_message
+        error_message = f"Error occurred while generating continuation: {str(e)}\n{traceback.format_exc()}"
+        return gr.update(value=current_code), error_message
 
 def refactor_code(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> Tuple[gr.update, str]:
-    refactor_prompt = f"""Refactor the following Python code. Review the user request and the code generated so far, then provide a refactored version. Only output code with proper comments. Do not include any explanations outside of code comments. Do not use markdown code block markers.
+    # Analyze the current code
+    tree = ast.parse(current_code)
+    
+    # Identify potential refactoring opportunities
+    refactoring_opportunities = []
+    
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            if len(node.body) > 20:  # Long function, might need extraction
+                refactoring_opportunities.append(f"Consider extracting parts of the function '{node.name}' into smaller functions.")
+        elif isinstance(node, ast.For) or isinstance(node, ast.While):
+            if len(node.body) > 15:  # Long loop, might need optimization
+                refactoring_opportunities.append("Consider optimizing the loop starting at line {node.lineno}.")
+    
+    refactor_prompt = f"""Refactor the following Python code. Review the user request and the code generated so far, then provide a refactored version. Consider the following refactoring opportunities:
+{chr(10).join(refactoring_opportunities)}
+
+Only output code with proper comments. Do not include any explanations outside of code comments. Do not use markdown code block markers.
 
 User Request: {user_request}
 
@@ -222,6 +289,7 @@ Refactored Code:
         markdown_history.append(refactored_code)
         global current_markdown_index
         current_markdown_index = len(markdown_history) - 1
+        code_versions.append(refactored_code)
         
         status = "Code refactored successfully."
         return gr.update(value=refactored_code), status
@@ -329,6 +397,70 @@ def save_modelfile(model_name: str, modelfile_content: str) -> str:
 def update_model_list():
     return gr.update(choices=get_available_models())
 
+def markdown_to_code(markdown_content: str) -> str:
+    code_blocks = re.findall(r'```python\n(.*?)```', markdown_content, re.DOTALL)
+    return '\n\n'.join(code_blocks)
+
+def code_to_markdown(code: str) -> str:
+    return f"```python\n{code}\n```"
+
+def execute_code(code: str) -> str:
+    try:
+        # Create a restricted environment
+        restricted_globals = safe_builtins.copy()
+        restricted_globals['_print_'] = PrintCollector
+        restricted_globals['__builtins__'] = restricted_globals
+
+        # Compile and execute the code
+        byte_code = compile_restricted(code, '<string>', 'exec')
+        exec(byte_code, restricted_globals)
+
+        # Get the printed output
+        output = restricted_globals['_print']()
+        return output
+    except Exception as e:
+        return f"Error executing code: {str(e)}"
+
+def lint_code(code: str) -> str:
+    try:
+        tree = ast.parse(code)
+        issues = []
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                if len(node.args.args) > 5:
+                    issues.append(f"Line {node.lineno}: Function '{node.name}' has more than 5 parameters.")
+            elif isinstance(node, ast.Try):
+                if not node.handlers:
+                    issues.append(f"Line {node.lineno}: Try block without except handlers.")
+            elif isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
+                if any(alias.asname for alias in node.names):
+                    issues.append(f"Line {node.lineno}: Consider avoiding 'import as' for clarity.")
+
+        if issues:
+            return "\n".join(issues)
+        else:
+            return "No issues found."
+    except SyntaxError as e:
+        return f"Syntax error: {str(e)}"
+    except Exception as e:
+        return f"An error occurred during code analysis: {str(e)}"
+
+def get_autocomplete_suggestions(code: str, line: int, column: int) -> List[str]:
+    script = jedi.Script(code)
+    completions = script.complete(line, column)
+    return [c.name for c in completions]
+
+def explore_modules() -> List[str]:
+    return [name for _, name, _ in pkgutil.iter_modules()]
+
+def import_module(module_name: str) -> str:
+    try:
+        importlib.import_module(module_name)
+        return f"Module {module_name} imported successfully."
+    except ImportError as e:
+        return f"Error importing module {module_name}: {str(e)}"
+
 # Gradio interface setup
 def create_interface():
     with gr.Blocks(title="Enhanced Ollama Text Generation", 
@@ -348,11 +480,12 @@ def create_interface():
                     mode_radio = gr.Radio(["Chat", "Coding"], label="Mode", value="Chat")
                     generate_voice_checkbox = gr.Checkbox(label="Generate Voice", value=False)
                 voice_dropdown = gr.Dropdown(choices=get_available_voices(), label="Select Voice", value=get_available_voices()[0] if get_available_voices() else None)
-                audio_output = gr.Audio(label="Voice Output", visible=False)
+                audio_output = gr.Audio(label="Voice Output", visible=False, autoplay=True)
             
             with gr.Column(scale=2):
                 coding_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Coding Model", value=get_available_models()[0] if get_available_models() else None)
                 code_output = gr.Code(label="Code Output", language="python")
+                code_editor = gr.TextArea(label="Code Editor", lines=10)  # Replaced Markdown with TextArea
                 with gr.Row():
                     prev_button = gr.Button("◀ Previous")
                     next_button = gr.Button("Next ▶")
@@ -361,8 +494,12 @@ def create_interface():
                 with gr.Row():
                     continue_button = gr.Button("Continue Generation")
                     refactor_button = gr.Button("Refactor Code")
+                    execute_button = gr.Button("Execute Code")
+                    lint_button = gr.Button("Lint Code")
                 with gr.Row():
                     code_status = gr.Textbox(label="Code Generation Status", interactive=False)
+                    execution_output = gr.Textbox(label="Execution Output", interactive=False)
+                    lint_output = gr.Textbox(label="Lint Output", interactive=False)
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -397,6 +534,12 @@ def create_interface():
                 save_modelfile_button = gr.Button("Save Modelfile")
             
             model_management_output = gr.Textbox(label="Output", lines=5)
+
+        with gr.Tab("Library Explorer"):
+            with gr.Row():
+                module_list = gr.Dropdown(choices=explore_modules(), label="Available Modules")
+                import_button = gr.Button("Import Selected Module")
+            import_output = gr.Textbox(label="Import Output", lines=2)
 
         # Event handlers
         generate_button.click(
@@ -440,6 +583,17 @@ def create_interface():
         download_button.click(update_model_list, outputs=[main_model_dropdown, coding_model_dropdown, delete_model_dropdown, load_model_dropdown])
         delete_button.click(update_model_list, outputs=[main_model_dropdown, coding_model_dropdown, delete_model_dropdown, load_model_dropdown])
 
+        # Code editing
+        code_output.change(lambda x: x, inputs=[code_output], outputs=[code_editor])
+        code_editor.change(lambda x: x, inputs=[code_editor], outputs=[code_output])
+
+        # Code execution and linting
+        execute_button.click(execute_code, inputs=[code_output], outputs=[execution_output])
+        lint_button.click(lint_code, inputs=[code_output], outputs=[lint_output])
+
+        # Module import
+        import_button.click(import_module, inputs=[module_list], outputs=[import_output])
+
         gr.Markdown("""
         ## Parameter Explanations:
         - **Max Length**: The maximum number of tokens in the generated text.
@@ -455,13 +609,16 @@ if __name__ == "__main__":
     try:
         iface = create_interface()
         iface.launch(share=False, server_name="127.0.0.1")
+
+        # Apply custom CSS and JavaScript
+        iface.load(css=custom_css, js=custom_js)
     except Exception as e:
         logger.error(f"Error launching Gradio interface: {e}")
         print(f"An error occurred while launching the interface: {e}")
         import traceback
         traceback.print_exc()
 
-# CSS styles
+# CSS styles and JavaScript remain the same as in your original code
 custom_css = """
     .chat-container {
         display: flex;
@@ -514,9 +671,47 @@ custom_css = """
     #continue-button {
         margin-top: 10px;
     }
+    .split-view {
+        display: flex;
+        height: 500px;
+    }
+    .split-view > div {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px;
+    }
+    .collapsible {
+        background-color: #f1f1f1;
+        cursor: pointer;
+        padding: 18px;
+        width: 100%;
+        border: none;
+        text-align: left;
+        outline: none;
+        font-size: 15px;
+    }
+    .active, .collapsible:hover {
+        background-color: #e1e1e1;
+    }
+    .collapsible:after {
+        content: '\\002B';
+        font-weight: bold;
+        float: right;
+        margin-left: 5px;
+    }
+    .active:after {
+        content: "\\2212";
+    }
+    .content {
+        padding: 0 18px;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.2s ease-out;
+        background-color: #f9f9f9;
+    }
 """
 
-# JavaScript for chat bubble toggling
+# JavaScript for chat bubble toggling and code block collapsing
 custom_js = """
     function toggleChatBubble(id) {
         const chatBubble = document.getElementById(`chat-${id}`);
@@ -530,6 +725,21 @@ custom_js = """
             content.style.display = 'none';
             toggleIcon.textContent = '[+]';
         }
+    }
+
+    var coll = document.getElementsByClassName("collapsible");
+    var i;
+
+    for (i = 0; i < coll.length; i++) {
+        coll[i].addEventListener("click", function() {
+            this.classList.toggle("active");
+            var content = this.nextElementSibling;
+            if (content.style.maxHeight){
+                content.style.maxHeight = null;
+            } else {
+                content.style.maxHeight = content.scrollHeight + "px";
+            }
+        });
     }
 """
 
