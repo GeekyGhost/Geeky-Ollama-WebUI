@@ -1,6 +1,15 @@
 gradio
-requests
+ollama
 PyPDF2
 python-docx
 pyttsx3
 SpeechRecognition
+numpy
+scikit-learn
+tqdm
+aiosqlite
+autopep8
+regex
+pylint
+RestrictedPython
+jedi
