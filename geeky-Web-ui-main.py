@@ -77,17 +77,6 @@ def generate_text(model: str, prompt: str, max_length: int, temperature: float, 
         logger.error(f"Error in generate_text: {e}")
         return f"An error occurred: {str(e)}"
 
-def send_ollama_request(data: Dict) -> str:
-    try:
-        response = requests.post(f"{OLLAMA_API_URL}/generate", json=data)
-        response.raise_for_status()
-        lines = response.text.strip().split('\n')
-        full_response = "".join(json.loads(line)['response'] for line in lines if 'response' in json.loads(line))
-        return full_response
-    except requests.RequestException as e:
-        logger.error(f"Error in Ollama request: {e}")
-        return f"Error: {str(e)}"
-
 def extract_text_from_document(file) -> Optional[str]:
     if file is None:
         return None
@@ -213,7 +202,6 @@ Continue from here, maintaining the appropriate indentation and structure:
         error_message = f"Error occurred while generating continuation: {str(e)}"
         return gr.update(value=current_code + f"\n\n# {error_message}"), error_message
 
-
 def refactor_code(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> Tuple[gr.update, str]:
     refactor_prompt = f"""Refactor the following Python code. Review the user request and the code generated so far, then provide a refactored version. Only output code with proper comments. Do not include any explanations outside of code comments. Do not use markdown code block markers.
 
@@ -310,24 +298,23 @@ def download_code(code: str) -> str:
 
 def download_model(model_name: str) -> str:
     try:
-        result = subprocess.run(['ollama', 'run', model_name], capture_output=True, text=True, check=True)
+        client.pull(model_name)
         return f"Model {model_name} downloaded successfully."
-    except subprocess.CalledProcessError as e:
-        return f"Error downloading model: {e.output}"
+    except Exception as e:
+        return f"Error downloading model: {str(e)}"
 
 def delete_model(model_name: str) -> str:
     try:
-        result = subprocess.run(['ollama', 'rm', model_name], capture_output=True, text=True, check=True)
+        client.delete(model_name)
         return f"Model {model_name} deleted successfully."
-    except subprocess.CalledProcessError as e:
-        return f"Error deleting model: {e.output}"
+    except Exception as e:
+        return f"Error deleting model: {str(e)}"
 
 def load_modelfile(model_name: str) -> str:
     try:
-        result = subprocess.run(['ollama', 'show', model_name], capture_output=True, text=True, check=True)
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        return f"Error loading modelfile: {e.output}"
+        return client.show(model_name)['modelfile']
+    except Exception as e:
+        return f"Error loading modelfile: {str(e)}"
 
 def save_modelfile(model_name: str, modelfile_content: str) -> str:
     try:
@@ -338,6 +325,9 @@ def save_modelfile(model_name: str, modelfile_content: str) -> str:
         return f"Modelfile for {model_name} saved and applied successfully."
     except Exception as e:
         return f"Error saving modelfile: {str(e)}"
+
+def update_model_list():
+    return gr.update(choices=get_available_models())
 
 # Gradio interface setup
 def create_interface():
@@ -374,13 +364,12 @@ def create_interface():
                 with gr.Row():
                     code_status = gr.Textbox(label="Code Generation Status", interactive=False)
 
-
         with gr.Row():
             with gr.Column(scale=1):
                 image_input = gr.Image(type="filepath", label="Upload Image")
                 document_input = gr.File(label="Upload Document for Context (RAG)")
             with gr.Column(scale=2):
-                max_length = gr.Slider(50, 42000, value=250, step=10, label="Max Length")
+                max_length = gr.Slider(50, 4200, value=250, step=10, label="Max Length")
                 temperature = gr.Slider(0.1, 2.0, value=0.7, step=0.1, label="Temperature")
                 top_k = gr.Slider(0, 100, value=40, step=1, label="Top-k")
                 top_p = gr.Slider(0.0, 1.0, value=0.9, step=0.05, label="Top-p (nucleus sampling)")
@@ -420,7 +409,7 @@ def create_interface():
             continue_code_generation,
             inputs=[coding_model_dropdown, code_output, input_text, max_length, temperature, top_k, top_p],
             outputs=[code_output, code_status]
-    )
+        )
 
         refactor_button.click(
             refactor_code,
@@ -442,9 +431,14 @@ def create_interface():
         download_button.click(download_code, inputs=[code_output], outputs=[gr.File()])
         copy_button.click(lambda x: gr.update(value=x), inputs=[code_output], outputs=[gr.Textbox(visible=False)])
 
+        download_button.click(download_model, inputs=[model_name_input], outputs=[model_management_output])
         delete_button.click(delete_model, inputs=[delete_model_dropdown], outputs=[model_management_output])
         load_modelfile_button.click(load_modelfile, inputs=[load_model_dropdown], outputs=[modelfile_input])
         save_modelfile_button.click(save_modelfile, inputs=[model_name_input, modelfile_input], outputs=[model_management_output])
+
+        # Update model lists after download or delete operations
+        download_button.click(update_model_list, outputs=[main_model_dropdown, coding_model_dropdown, delete_model_dropdown, load_model_dropdown])
+        delete_button.click(update_model_list, outputs=[main_model_dropdown, coding_model_dropdown, delete_model_dropdown, load_model_dropdown])
 
         gr.Markdown("""
         ## Parameter Explanations:
