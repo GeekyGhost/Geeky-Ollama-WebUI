@@ -1,4 +1,4 @@
-Work in progress. Geeky Ollama Web ui, working on RAG and some other things (RAG Done). Rework of my old GPT 2 UI I never fully released due to how bad the output was at the time lol. 
+Work in progress. Geeky Ollama Web ui, working on RAG and some other things (RAG Done). Rework of my old GPT 2 UI I never fully released due to how bad the output was at the time. I am attempting to see how far I can take this with just Gradio. No goal beyond that. Side hobby project. 
 
 
 v2 - geeky-Web-ui-main.py
