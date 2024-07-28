@@ -27,14 +27,19 @@ import pkgutil
 import importlib
 import jedi
 import traceback
-
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.vectorstores import Chroma
+from langchain.embeddings import OllamaEmbeddings
+from langchain.chains import RetrievalQA
+import threading
+import time
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Constants
-OLLAMA_API_URL = "http://localhost:11434/api"
+OLLAMA_API_URL = "http://localhost:11434/v1"
 
 # Global variables
 chat_history: List[Dict[str, str]] = []
@@ -83,9 +88,7 @@ def generate_text(model: str, prompt: str, max_length: int, temperature: float, 
             for chunk in tqdm(response, desc="Processing response", leave=False):
                 full_response += chunk['message']['content']
             
-            # Remove ```python and ``` markers
             full_response = full_response.replace("```python", "").replace("```", "").strip()
-            
             responses.append(full_response)
         
         return "\n\n--- New Sequence ---\n\n".join(responses)
@@ -112,10 +115,6 @@ def extract_text_from_document(file) -> Optional[str]:
     except Exception as e:
         logger.error(f"Error extracting text from document: {e}")
         return f"Error processing document: {str(e)}"
-
-def extract_code_snippets(text: str) -> List[str]:
-    code_pattern = re.compile(r'```python(.*?)```', re.DOTALL)
-    return code_pattern.findall(text)
 
 def get_available_voices() -> List[str]:
     engine = pyttsx3.init()
@@ -161,7 +160,7 @@ def generate_with_context(main_model: str, coding_model: str, prompt: str, max_l
         markdown_history.append(code_response)
         current_markdown_index = len(markdown_history) - 1
         code_versions.append(code_response)
-        return chat_history_to_string(), code_response, chat_history_to_string(), None, gr.update(value=code_response)
+        return chat_history_to_string(), code_response, chat_history_to_string(), None, gr.update(value=code_response), gr.update(value="")
     else:
         main_response = generate_text(main_model, prompt, max_length, temperature, top_k, top_p, num_sequences, image, context)
         chat_history.append({"role": "user", "content": prompt})
@@ -171,7 +170,7 @@ def generate_with_context(main_model: str, coding_model: str, prompt: str, max_l
         if generate_voice:
             audio_output = text_to_speech(main_response, voice_name)
         
-        return chat_history_to_string(), "", chat_history_to_string(), audio_output, gr.update(value="")
+        return chat_history_to_string(), "", chat_history_to_string(), audio_output, gr.update(value=""), gr.update(value="")
 
 def continue_code_generation(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> Tuple[gr.update, str]:
     try:
@@ -322,16 +321,45 @@ def cycle_markdown(direction: str) -> str:
 def markdown_history_to_string() -> str:
     return "\n\n---\n\n".join(markdown_history)
 
-def record_audio() -> str:
+def record_audio(progress=gr.Progress()) -> str:
     recognizer = sr.Recognizer()
-    with sr.Microphone() as source:
-        audio = recognizer.listen(source)
+    recording = True
+    audio_data = []
+    
+    def record():
+        nonlocal recording, audio_data
+        with sr.Microphone() as source:
+            recognizer.adjust_for_ambient_noise(source)
+            while recording:
+                try:
+                    audio_chunk = recognizer.listen(source, timeout=1, phrase_time_limit=10)
+                    audio_data.append(audio_chunk)
+                except sr.WaitTimeoutError:
+                    pass
+    
+    thread = threading.Thread(target=record)
+    thread.start()
+    
+    # Show recording progress for 10 seconds max
+    for i in progress.tqdm(range(100)):
+        if i >= 99:  # Stop after 10 seconds
+            recording = False
+        time.sleep(0.1)
+    
+    recording = False
+    thread.join()
+    
+    full_audio = sr.AudioData(b''.join(chunk.frame_data for chunk in audio_data),
+                              audio_data[0].sample_rate,
+                              audio_data[0].sample_width)
+    
     try:
-        return recognizer.recognize_google(audio)
+        text = recognizer.recognize_google(full_audio)
+        return text
     except sr.UnknownValueError:
-        return "Could not understand audio"
+        return "Could not understand audio. Please try again."
     except sr.RequestError as e:
-        return f"Could not request results; {e}"
+        return f"Could not request results; {e}. Please check your internet connection."
 
 def new_session() -> Tuple[gr.update, str, str]:
     global current_session, chat_history, markdown_history
@@ -461,6 +489,26 @@ def import_module(module_name: str) -> str:
     except ImportError as e:
         return f"Error importing module {module_name}: {str(e)}"
 
+def process_document(file_path: str, question: str) -> str:
+    # Load the document
+    loader = WebBaseLoader(file_path)
+    data = loader.load()
+
+    # Split the document into chunks
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
+    all_splits = text_splitter.split_documents(data)
+
+    # Create embeddings and store in vector database
+    oembed = OllamaEmbeddings(base_url="http://localhost:11434", model="nomic-embed-text")
+    vectorstore = Chroma.from_documents(documents=all_splits, embedding=oembed)
+
+    # Create a question-answering chain
+    qa_chain = RetrievalQA.from_chain_type(ollama, retriever=vectorstore.as_retriever())
+
+    # Ask the question
+    result = qa_chain.invoke({"query": question})
+    return result['result']
+
 # Gradio interface setup
 def create_interface():
     with gr.Blocks(title="Enhanced Ollama Text Generation", 
@@ -477,7 +525,7 @@ def create_interface():
                     mic_button = gr.Button("🎤", scale=1)
                     generate_button = gr.Button("Generate", scale=3)
                 with gr.Row():
-                    mode_radio = gr.Radio(["Chat", "Coding"], label="Mode", value="Chat")
+                    mode_radio = gr.Radio(["Chat", "Coding", "Document QA"], label="Mode", value="Chat")
                     generate_voice_checkbox = gr.Checkbox(label="Generate Voice", value=False)
                 voice_dropdown = gr.Dropdown(choices=get_available_voices(), label="Select Voice", value=get_available_voices()[0] if get_available_voices() else None)
                 audio_output = gr.Audio(label="Voice Output", visible=False, autoplay=True)
@@ -485,7 +533,7 @@ def create_interface():
             with gr.Column(scale=2):
                 coding_model_dropdown = gr.Dropdown(choices=get_available_models(), label="Select Coding Model", value=get_available_models()[0] if get_available_models() else None)
                 code_output = gr.Code(label="Code Output", language="python")
-                code_editor = gr.TextArea(label="Code Editor", lines=10)  # Replaced Markdown with TextArea
+                code_editor = gr.TextArea(label="Code Editor", lines=10)
                 with gr.Row():
                     prev_button = gr.Button("◀ Previous")
                     next_button = gr.Button("Next ▶")
@@ -545,7 +593,7 @@ def create_interface():
         generate_button.click(
             generate_with_context,
             inputs=[main_model_dropdown, coding_model_dropdown, input_text, max_length, temperature, top_k, top_p, num_sequences, image_input, document_input, mode_radio, voice_dropdown, generate_voice_checkbox],
-            outputs=[chat_display, code_output, chat_display, audio_output, code_output]
+            outputs=[chat_display, code_output, chat_display, audio_output, code_output, input_text]
         )
 
         continue_button.click(
@@ -563,7 +611,11 @@ def create_interface():
         prev_button.click(partial(cycle_markdown, "prev"), outputs=[code_output])
         next_button.click(partial(cycle_markdown, "next"), outputs=[code_output])
 
-        mic_button.click(record_audio, outputs=[input_text])
+        mic_button.click(
+            record_audio,
+            outputs=[input_text],
+            show_progress=True
+        )
 
         new_session_button.click(new_session, outputs=[session_dropdown, chat_display, code_output])
         load_session_button.click(load_session, inputs=[session_dropdown], outputs=[chat_display, code_output])
@@ -594,12 +646,32 @@ def create_interface():
         # Module import
         import_button.click(import_module, inputs=[module_list], outputs=[import_output])
 
+        # Document QA
+        def document_qa(document, question):
+            if document and question:
+                return process_document(document.name, question)
+            return "Please upload a document and ask a question."
+
+        mode_radio.change(
+            lambda mode: gr.update(visible=mode == "Document QA"),
+            inputs=[mode_radio],
+            outputs=[document_input]
+        )
+
+        generate_button.click(
+            document_qa,
+            inputs=[document_input, input_text],
+            outputs=[chat_display],
+            show_progress=True
+        )
+
         gr.Markdown("""
         ## Parameter Explanations:
         - **Max Length**: The maximum number of tokens in the generated text.
         - **Temperature**: Controls randomness. Lower values make the output more focused and deterministic.
         - **Top-k**: Limits the next token selection to the k most probable tokens.
         - **Top-p (nucleus sampling)**: Dynamically selects the smallest set of tokens whose cumulative probability exceeds p.
+        - **Number of Sequences**: The number of alternative completions to generate.
         """)
 
     return iface
@@ -618,7 +690,7 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
 
-# CSS styles and JavaScript remain the same as in your original code
+# CSS styles and JavaScript
 custom_css = """
     .chat-container {
         display: flex;
