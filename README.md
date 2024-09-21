@@ -2,7 +2,7 @@
 
 ## Overview
 
-Geeky Ollama WebUI is a sophisticated AI-assisted coding and chat interface built with Gradio and powered by the Ollama AI model. This project aims to explore the capabilities of large language models in a user-friendly web interface, providing a versatile platform for both casual users and developers. It evolved from an earlier GPT-2 UI concept and continues to expand its features and capabilities.
+Geeky Ollama WebUI is a sophisticated AI-assisted coding and chat interface built with Gradio and powered by the Ollama. This project aims to explore the capabilities of large language models in a user-friendly web interface, providing a versatile platform for both casual users and developers. It evolved from an earlier GPT-2 UI concept and continues to expand its features and capabilities.
 
 <img width="1238" alt="Screenshot 2024-09-21 012213" src="https://github.com/user-attachments/assets/97711267-675a-4fbf-b2b2-168be432a549">
 <img width="1208" alt="Screenshot 2024-09-21 012148" src="https://github.com/user-attachments/assets/8e96f130-df83-41a9-a9b5-4838b9bc2ec0">
