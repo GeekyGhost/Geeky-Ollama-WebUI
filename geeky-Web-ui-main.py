@@ -17,8 +17,8 @@ import ast
 import jedi
 import traceback
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import Chroma
-from langchain.embeddings import OllamaEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import OllamaEmbeddings
 from langchain.chains import RetrievalQA
 import threading
 import time
