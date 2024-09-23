@@ -17,8 +17,8 @@ import ast
 import jedi
 import traceback
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain.vectorstores import Chroma
+from langchain.embeddings import OllamaEmbeddings
 from langchain.chains import RetrievalQA
 import threading
 import time
@@ -412,7 +412,7 @@ def create_interface():
         }
         .code-area { 
             font-family: 'Courier New', monospace; 
-            background-color: #4C4E52; 
+            background-color: #27282b; 
             border: 1px solid #ddd;
             font-size: 14px;
         }
