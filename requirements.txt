@@ -19,3 +19,5 @@ chromadb>=0.4.14
 duckdb>=0.8.1
 uvicorn>=0.22.0
 fastapi>=0.95.2
+nltk
+qdrant-client
