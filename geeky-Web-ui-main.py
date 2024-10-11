@@ -17,13 +17,15 @@ import ast
 import jedi
 import traceback
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import Chroma
-from langchain.embeddings import OllamaEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import OllamaEmbeddings
 from langchain.chains import RetrievalQA
 import threading
 import time
 import pkgutil
 import importlib
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -31,9 +33,15 @@ logger = logging.getLogger(__name__)
 
 # Constants
 OLLAMA_API_URL = "http://localhost:11434"
+QDRANT_HOST = "localhost"
+QDRANT_PORT = 6333
+COLLECTION_NAME = "pubmed_vectors"
 
 # Create an Ollama client
 client = ollama.Client(host=OLLAMA_API_URL)
+
+# Create a Qdrant client
+qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
 # Global variables
 chat_history: List[Dict[str, str]] = []
@@ -124,6 +132,25 @@ def text_to_speech(text: str, voice_name: str) -> Optional[str]:
         logger.error(f"Error in text-to-speech: {e}")
         return None
 
+def get_embedding(text: str) -> List[float]:
+    # Use OllamaEmbeddings for consistency with the rest of the system
+    embeddings = OllamaEmbeddings(model="llama2")
+    return embeddings.embed_query(text)
+
+def retrieve_context(query: str) -> str:
+    try:
+        query_vector = get_embedding(query)
+        search_result = qdrant_client.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=query_vector,
+            limit=3
+        )
+        contexts = [hit.payload.get('text', '') for hit in search_result]
+        return "\n".join(contexts)
+    except Exception as e:
+        logger.error(f"Error retrieving context: {e}")
+        return ""
+
 def generate_with_context(
     main_model: str,
     coding_model: str,
@@ -140,10 +167,9 @@ def generate_with_context(
     generate_voice: bool,
 ):
     global chat_history, markdown_history, current_markdown_index
-    context = extract_text_from_document(document) if document else None
-    if chat_history:
-        previous_conversation = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history])
-        context = f"{context}\n\nChat History:\n{previous_conversation}" if context else previous_conversation
+
+    # Retrieve context using RAG
+    context = retrieve_context(prompt)
 
     if mode == "Coding":
         explanation_prompt = f"Context: {context}\n\nUser Request: {prompt}\n\nProvide an explanation of the proposed changes and how to use them. Do not include any code in this response."
@@ -186,19 +212,23 @@ def generate_with_context(
         )
 
 def chat_history_to_string() -> str:
-    chat_html = '<div style="display: flex; flex-direction: column; gap: 15px; font-size: 16px; width: 100%;">'
+    chat_html = '<div id="chat-container">'
     for msg in chat_history:
-        style = (
-            "align-self: flex-end; background-color: #1982FC;"
-            if msg['role'] == 'user'
-            else "align-self: flex-start; background-color: #34C759;"
-        )
-        chat_html += f'''
-        <div style="{style} max-width: 80%; color: white; padding: 12px 18px; border-radius: 20px; position: relative; word-wrap: break-word;">
-            <div style="font-size: 1.1em;">{msg["content"]}</div>
-            <div style="font-size: 0.8em; opacity: 0.7; {'text-align: right; ' if msg['role'] == 'user' else ''}margin-top: 5px;">{msg['role'].capitalize()}</div>
-        </div>
-        '''
+        class_name = "user-message" if msg['role'] == 'user' else "assistant-message"
+        chat_html += f'<div class="chat-message {class_name}">'
+        
+        # Format the content
+        formatted_content = msg["content"].replace('\n', '<br>')
+        formatted_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', formatted_content)
+        formatted_content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', formatted_content)
+        formatted_content = re.sub(r'`(.*?)`', r'<code>\1</code>', formatted_content)
+        
+        # Add special formatting for lists
+        formatted_content = re.sub(r'(?m)^(\d+\.|\-)\s', r'<br>• ', formatted_content)
+        
+        chat_html += f'<p>{formatted_content}</p>'
+        chat_html += f'<small>{msg["role"].capitalize()}</small>'
+        chat_html += '</div>'
     chat_html += '</div>'
     return chat_html
 
@@ -358,13 +388,21 @@ def import_module(module_name: str) -> str:
         return f"Error importing module '{module_name}': {str(e)}"
 
 def process_document(file_path: str, question: str) -> str:
-    # Placeholder for document processing
-    return "Document QA functionality is under development."
+    # Extract text from the document
+    text = extract_text_from_document(file_path)
+    
+    # Use RAG to get context
+    context = retrieve_context(question)
+    
+    # Generate response using the main model
+    response = generate_text("main_model", f"Context: {context}\n\nDocument: {text}\n\nQuestion: {question}", 500, 0.7, 40, 0.9, 1)
+    
+    return response
 
 # Gradio interface setup
 def create_interface():
     with gr.Blocks(
-        title="Enhanced Ollama Text Generation",
+        title="PubMed Faster RAG!",
         theme=gr.themes.Soft(),
         css="""
         .container { max-width: 1200px; margin: auto; }
@@ -424,7 +462,7 @@ def create_interface():
         }
         """
     ) as iface:
-        gr.Markdown("# 🤖 Enhanced Ollama Text Generation")
+        gr.Markdown("# 🚀 PubMed Faster RAG!")
 
         with gr.Row():
             with gr.Column(scale=2):
@@ -433,7 +471,7 @@ def create_interface():
                     input_text = gr.Textbox(
                         lines=3,
                         label="Your Message",
-                        placeholder="Type your message here...",
+                        placeholder="Ask anything...",
                         elem_id="input-text"
                     )
                     mic_button = gr.Button("🎤", elem_id="mic-button")
@@ -613,42 +651,7 @@ def create_interface():
             outputs=[chat_display, input_text]
         )
 
-        gr.Markdown(
-            """
-            ## Parameter Explanations:
-            - **Max Length**: The maximum number of tokens in the generated text.
-            - **Temperature**: Controls randomness. Lower values make the output more focused and deterministic.
-            - **Top-k**: Limits the next token selection to the k most probable tokens.
-            - **Top-p**: Dynamically selects the smallest set of tokens whose cumulative probability exceeds p.
-            - **Number of Sequences**: The number of alternative completions to generate.
-            """
-        )
-
     return iface
-
-# Updated chat_history_to_string function
-def chat_history_to_string() -> str:
-    chat_html = '<div id="chat-container">'
-    for msg in chat_history:
-        class_name = "user-message" if msg['role'] == 'user' else "assistant-message"
-        chat_html += f'<div class="chat-message {class_name}">'
-        chat_html += f'<p>{msg["content"]}</p>'
-        chat_html += f'<small>{msg["role"].capitalize()}</small>'
-        chat_html += '</div>'
-    chat_html += '</div>'
-    return chat_html
-
-# Function to scroll chat to bottom (add this to your JavaScript)
-def scroll_chat_to_bottom():
-    return """
-    function scrollChatToBottom() {
-        var chatContainer = document.getElementById('chat-container');
-        if (chatContainer) {
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-    }
-    scrollChatToBottom();
-    """
 
 if __name__ == "__main__":
     try:
