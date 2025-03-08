@@ -1,5 +1,7 @@
 # Geeky Ollama WebUI
 
+Perpetual Work in Progress. Updating it with some of Ollama's new features and etc. Personal project that's part of another project. 
+
 ## Overview
 
 Geeky Ollama WebUI is a sophisticated web interface for Ollama AI models, combining powerful functionality with an intuitive user experience. This application serves as a comprehensive environment for both everyday users and developers to interact with large language models through a feature-rich Gradio interface. The project emphasizes versatility, offering capabilities ranging from casual conversation to advanced coding assistance and visual analysis.
