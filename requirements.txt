@@ -1,5 +1,5 @@
-gradio
-ollama==0.3.3
+gradio>=4.0.0
+ollama>=0.3.3
 PyPDF2==3.0.1
 python-docx==0.8.11
 pyttsx3==2.90
@@ -14,10 +14,15 @@ regex>=2023.10.3
 pylint>=2.17.5
 RestrictedPython>=6.0
 jedi>=0.19.0
+langchain>=0.1.0
 langchain-community>=0.0.1
+langchain-core>=0.1.0
 chromadb>=0.4.14
 duckdb>=0.8.1
 uvicorn>=0.22.0
 fastapi>=0.95.2
-nltk
-qdrant-client
+nltk>=3.8.1
+qdrant-client>=1.5.0
+pydantic>=2.0.0
+Pillow>=10.0.0
+sentence-transformers>=2.2.2
