@@ -75,7 +75,7 @@ if %errorlevel% neq 0 (
 )
 
 echo Launching OllamaGradio UI...
-%PYTHON_CMD% geeky-Web-ui-main.py
+%PYTHON_CMD% app.py
 if %errorlevel% neq 0 (
     echo Failed to launch OllamaGradio UI.
     pause
