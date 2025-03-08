@@ -2,201 +2,200 @@
 
 ## Overview
 
-Geeky Ollama WebUI is a sophisticated AI-assisted coding and chat interface built with Gradio and powered by the Ollama. This project aims to explore the capabilities of large language models in a user-friendly web interface, providing a versatile platform for both casual users and developers. It evolved from an earlier GPT-2 UI concept and continues to expand its features and capabilities.
+Geeky Ollama WebUI is a sophisticated web interface for Ollama AI models, combining powerful functionality with an intuitive user experience. This application serves as a comprehensive environment for both everyday users and developers to interact with large language models through a feature-rich Gradio interface. The project emphasizes versatility, offering capabilities ranging from casual conversation to advanced coding assistance and visual analysis.
 
 <img width="1238" alt="Screenshot 2024-09-21 012213" src="https://github.com/user-attachments/assets/97711267-675a-4fbf-b2b2-168be432a549">
 <img width="1208" alt="Screenshot 2024-09-21 012148" src="https://github.com/user-attachments/assets/8e96f130-df83-41a9-a9b5-4838b9bc2ec0">
 <img width="1243" alt="Screenshot 2024-09-21 011723" src="https://github.com/user-attachments/assets/043861e2-4b68-4e34-b087-f89624860f44">
 <img width="1219" alt="Screenshot 2024-09-21 011740" src="https://github.com/user-attachments/assets/084843f9-7345-4c7c-9398-067de1816034">
 
-
 ## Table of Contents
 
-1. [For Users](#for-users)
-   - [Features](#features)
-   - [Setup](#setup)
-   - [Usage Guide](#usage-guide)
-   - [Troubleshooting](#troubleshooting)
-2. [For Developers](#for-developers)
-   - [Architecture Overview](#architecture-overview)
-   - [Key Components](#key-components)
-   - [Implementation Details](#implementation-details)
-   - [Extending the Project](#extending-the-project)
-   - [Known Limitations](#known-limitations)
-3. [Contributing](#contributing)
-4. [License](#license)
-5. [Contact](#contact)
+1. [Features](#features)
+2. [Installation](#installation)
+3. [Usage](#usage)
+4. [Interface Overview](#interface-overview)
+5. [Advanced Features](#advanced-features)
+6. [Technical Details](#technical-details)
+7. [Troubleshooting](#troubleshooting)
+8. [Contributing](#contributing)
+9. [License](#license)
 
-## For Users
+## Features
 
-### Features
+### Core Capabilities
+- **Versatile Chat Interface**: Engage in natural conversations with AI models
+- **Code Generation**: Create Python code from natural language descriptions
+- **Document Analysis**: Extract and analyze text from PDF, DOCX, and TXT files
+- **Image Analysis**: Process and interpret images with multimodal AI models
+- **Voice Output**: Convert AI responses to speech with customizable voices
 
-1. **Intelligent Chat Interface**: Engage in dynamic conversations with the AI on a wide range of topics.
-2. **Advanced Code Generation**: Generate Python code based on natural language requests.
-3. **Code Continuation and Refactoring**: Seamlessly continue writing code or refactor existing code with AI assistance.
-4. **Voice Synthesis**: Convert text responses to speech for an immersive audio experience.
-5. **Document Analysis**: Upload and analyze documents (PDF, DOCX, TXT) to provide context for AI responses.
-6. **Image Analysis**: Analyze and discuss uploaded images with compatible AI models.
-7. **Comprehensive Model Management**: Download, delete, and manage different AI models directly from the interface.
-8. **Code Execution and Linting**: Execute Python code in a safe environment and perform basic code analysis.
-9. **Library Explorer**: Discover and import Python libraries within the interface.
-10. **RAG (Retrieval-Augmented Generation)**: Enhance AI responses with relevant information retrieval from uploaded documents.
-11. **Multiple Chat Sessions**: Efficiently manage and switch between different chat sessions.
-12. **Customizable AI Parameters**: Fine-tune generation parameters for optimal outputs.
+### Advanced Tools
+- **Retrieval-Augmented Generation (RAG)**: Enhance responses with document-based knowledge
+- **Function Calling**: Execute specific functions through natural language requests
+- **Structured Output**: Generate responses in JSON format for programmatic processing
+- **Code Execution & Linting**: Run and analyze Python code within the interface
+- **Multiple Session Management**: Create and switch between different conversation contexts
 
-### Setup
+### Model Management
+- **Integrated Model Controls**: Download, delete, and manage Ollama models directly from the UI
+- **Modelfile Editing**: Create and modify Ollama Modelfiles through a dedicated interface
+- **Parameter Customization**: Fine-tune generation parameters for optimal results
 
-1. Ensure you have Python 3.8+ installed on your system.
-2. Clone the repository:
-   ```
+## Installation
+
+### Prerequisites
+- Python 3.8 or higher
+- Ollama installed and running on your system ([Ollama installation guide](https://ollama.ai/download))
+
+### Setup Instructions
+1. **Clone the repository**:
+   ```bash
    git clone https://github.com/GeekyGhost/Geeky-Ollama-WebUI.git
-   ```
-3. Navigate to the project directory:
-   ```
    cd Geeky-Ollama-WebUI
    ```
-4. Create a virtual environment (optional but recommended):
-   ```
+
+2. **Set up a virtual environment (recommended)**:
+   ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+   # On Windows:
+   venv\Scripts\activate
+   # On macOS/Linux:
+   source venv/bin/activate
    ```
-5. Install the required dependencies:
-   ```
+
+3. **Install dependencies**:
+   ```bash
    pip install -r requirements.txt
    ```
-6. Install and set up Ollama on your system following the instructions at [Ollama's official website](https://ollama.ai/).
 
-### Usage Guide
-
-1. Start the Ollama service on your system.
-2. Run the main script:
+4. **Launch the application**:
+   ```bash
+   python app.py
    ```
-   python geeky-Web-ui-main.py
-   ```
-3. Open your web browser and navigate to the local address provided by Gradio (typically `http://127.0.0.1:7860`).
-4. Use the interface to:
-   - Chat with the AI by typing in the input box and clicking "Generate"
-   - Switch between Chat and Coding modes using the radio buttons
-   - Upload documents or images for analysis
-   - Adjust AI generation parameters using the sliders
-   - Manage models in the "Model Management" tab
-   - Explore and import libraries in the "Library Explorer" tab
 
-### Troubleshooting
+5. **Access the interface**:
+   Open your web browser and navigate to http://127.0.0.1:7860
 
-- If you encounter model loading issues, ensure Ollama is running and up-to-date.
-- For voice generation problems, check that you have the necessary system libraries for pyttsx3.
-- If the interface doesn't load, verify that all dependencies are correctly installed and that there are no conflicting versions.
+## Usage
 
-## For Developers
+### Getting Started
+1. **Select a model** from the dropdown menu (requires Ollama to be running with models installed)
+2. **Choose a mode** (Chat, Coding, Image Analysis, etc.) based on your task
+3. **Type your prompt** in the input field and click "Send"
+4. **View the response** in the conversation display
 
-### Architecture Overview
+### Working with Documents and Images
+The interface provides dedicated upload sections for both documents and images:
 
-Geeky Ollama WebUI is built on a modular architecture that integrates various components:
+1. **Document Upload**:
+   - Supports PDF, DOCX, and TXT formats
+   - Provides context for AI responses
+   - Displays file names and types for easy reference
 
-1. **Gradio Frontend**: Provides the web interface and handles user interactions.
-2. **Ollama Client**: Manages communication with the Ollama API for AI model interactions.
-3. **Document Processor**: Handles parsing and text extraction from various file formats.
-4. **Code Analyzer**: Utilizes the Abstract Syntax Tree (AST) for code analysis and manipulation.
-5. **Voice Synthesizer**: Converts text to speech using pyttsx3.
-6. **RAG System**: Implements Retrieval-Augmented Generation for enhanced responses.
+2. **Image Upload**:
+   - Compatible with common image formats
+   - Enables visual analysis with multimodal models
+   - Supports upload from device, clipboard, or webcam
 
-The application follows a client-server model, with Gradio serving as the frontend and the Python backend handling the core logic and AI interactions.
+### Managing Sessions
+- Create new sessions to start fresh conversations
+- Save and name sessions for future reference
+- Switch between different sessions to maintain context separation
 
-### Key Components
+## Interface Overview
 
-1. **ollama.Client**: The main interface for interacting with Ollama models.
-2. **gradio.Blocks**: Used to create the dynamic web interface.
-3. **PdfReader and Document**: For parsing PDF and DOCX files respectively.
-4. **pyttsx3**: Handles text-to-speech conversion.
-5. **ast**: Used for Python code analysis and manipulation.
-6. **langchain**: Implements the RAG system for enhanced information retrieval.
+### Main Tabs
+1. **Chat**: Primary interface for conversation and content generation
+2. **Code**: Dedicated space for code generation and management
+3. **Document QA**: Question-answering based on uploaded documents
+4. **Models**: Interface for managing Ollama models
+5. **Settings**: Configuration options for the application
 
-### Implementation Details
+### Chat Interface Components
+- **Conversation Display**: Shows the ongoing conversation with message history
+- **Input Area**: Text field for entering prompts with microphone option
+- **Model Selection**: Dropdown to choose the active AI model
+- **Mode Selection**: Radio buttons for different interaction types
+- **Quick Settings**: Expandable panel for adjusting generation parameters
+- **Upload Section**: Area for document and image uploads
 
-#### Ollama Integration
-The `generate_text` function is the core of the AI interaction:
+## Advanced Features
 
-```python
-def generate_text(model: str, prompt: str, max_length: int, temperature: float, top_k: int, top_p: float,
-                  num_sequences: int, image: Optional[str] = None, context: Optional[str] = None) -> str:
-    # ... (function implementation)
-```
+### RAG (Retrieval-Augmented Generation)
+The Document QA tab implements RAG technology to:
+- Process and index uploaded documents
+- Retrieve relevant information based on queries
+- Generate responses grounded in document content
 
-This function prepares the request to the Ollama API, handling various parameters and optional image input.
+### Function Calling
+Enable the function calling feature to:
+- Perform specific tasks through natural language
+- Execute built-in utilities like calculations or information retrieval
+- Get structured results from unstructured requests
 
-#### Code Generation and Analysis
-Code generation, continuation, and refactoring are handled by separate functions that utilize the Ollama API and AST for code manipulation:
+### Code Generation and Management
+The Code tab provides specialized features:
+- Generate Python code based on requirements
+- Navigate through code history
+- Execute code within a safe environment
+- Check code for syntax errors
+- Download generated code for external use
 
-```python
-def continue_code_generation(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> Tuple[gr.update, str]:
-    # ... (function implementation)
+## Technical Details
 
-def refactor_code(coding_model: str, current_code: str, user_request: str, max_length: int, temperature: float, top_k: int, top_p: float) -> Tuple[gr.update, str]:
-    # ... (function implementation)
-```
+### Architecture
+Geeky Ollama WebUI is built on several key technologies:
+- **Gradio**: Provides the responsive web interface
+- **Ollama API**: Connects to Ollama models for AI capabilities
+- **LangChain**: Powers the RAG system for document analysis
+- **PyPDF2 & python-docx**: Handle document parsing
+- **pyttsx3**: Enables text-to-speech functionality
 
-#### RAG Implementation
-The RAG system uses langchain components to enhance AI responses:
+### File Structure
+- `app.py`: Main application file containing the Gradio interface
+- `requirements.txt`: Lists all necessary Python dependencies
+- `run.bat`: Windows batch file for easy startup
 
-```python
-def process_document(file_path: str, question: str) -> str:
-    loader = WebBaseLoader(file_path)
-    data = loader.load()
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
-    all_splits = text_splitter.split_documents(data)
-    vectorstore = Chroma.from_documents(documents=all_splits, embedding=OllamaEmbeddings(base_url="http://localhost:11434", model="nomic-embed-text"))
-    qa_chain = RetrievalQA.from_chain_type(ollama, retriever=vectorstore.as_retriever())
-    result = qa_chain.invoke({"query": question})
-    return result['result']
-```
+### Model Compatibility
+This interface works with all Ollama models, with special features for:
+- General text models (chat, completion)
+- Code-specific models for programming tasks
+- Multimodal models supporting image analysis
+- Embedding models for RAG capabilities
 
-#### Gradio Interface
-The Gradio interface is created dynamically in the `create_interface` function, which sets up all the UI components and their interactions:
+## Troubleshooting
 
-```python
-def create_interface():
-    with gr.Blocks(title="Enhanced Ollama Text Generation") as iface:
-        # ... (interface components and layout)
-    return iface
-```
+### Common Issues
+- **"No models found" error**: Ensure Ollama is running and has models installed
+- **Image analysis not working**: Verify you're using a multimodal model (e.g., llama3-vision)
+- **Voice generation issues**: Check pyttsx3 installation and system audio configuration
+- **Document processing errors**: Confirm document format compatibility and file integrity
 
-### Extending the Project
-
-Developers can extend the project in several ways:
-
-1. **Adding New Models**: Implement support for additional Ollama models or integrate other AI services.
-2. **Enhancing RAG**: Improve the RAG system by implementing more sophisticated retrieval methods or document processing techniques.
-3. **Expanding Code Analysis**: Implement more advanced code analysis and refactoring techniques using tools like `astroid` or `rope`.
-4. **Improving UI**: Enhance the user interface with additional Gradio components or by integrating a custom frontend.
-5. **Adding Collaborative Features**: Implement real-time collaboration features using WebSockets or similar technologies.
-
-### Known Limitations
-
-- The project currently only supports Python code generation and analysis.
-- RAG implementation is basic and may not handle very large documents efficiently.
-- The code execution environment is restricted for security reasons, limiting some functionalities.
+### Performance Optimization
+- Use smaller models for faster responses
+- Adjust max length parameter for shorter generations
+- Reduce temperature for more deterministic outputs
+- Consider hardware limitations when processing large documents or images
 
 ## Contributing
 
-Contributions to Geeky Ollama WebUI are welcome! Please follow these steps:
+Contributions to Geeky Ollama WebUI are welcome! To contribute:
 
 1. Fork the repository
-2. Create a new branch for your feature
-3. Commit your changes
-4. Push to the branch
-5. Create a new Pull Request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-Please ensure your code adheres to the project's coding standards and include tests for new functionalities.
+Please ensure your code follows the project's style guidelines and includes appropriate documentation.
 
 ## License
 
-[Include your chosen license here]
-
-## Contact
-
-[Your contact information or link to issues page]
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ---
 
-We welcome stars ⭐, forks, and pull requests! If you find this project interesting or useful, please consider contributing or sharing it with others.
+Created by Willie G. (Geeky Ghost)
+
+*Powered by Ollama and built with Gradio*
